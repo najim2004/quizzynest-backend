@@ -7,6 +7,7 @@ import { rateLimit } from "express-rate-limit";
 import { connectDB } from "./config/database";
 import { errorHandler } from "./middleware/errorHandler";
 import { notFoundHandler } from "./middleware/notFoundHandler";
+import { authRouter } from "./auth/auth.route";
 class App {
   private app: Application;
 
@@ -44,6 +45,8 @@ class App {
         "<div style='display:flex; height:100%; width:100%; justify-content:center; align-items:center; background-color:#f1f1f1'><h1 style='text-align:center;'>Welcome to the QuizzyNest server</h1></div>"
       );
     });
+
+    this.app.use("/api/auth", authRouter);
   }
 
   private initializeErrorHandling(): void {
