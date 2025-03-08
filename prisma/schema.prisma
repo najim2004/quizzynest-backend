@@ -1,0 +1,223 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+enum AchievementType {
+  QUIZ_MASTER
+  HIGH_SCORER
+  STREAK_KEEPER
+  FAST_SOLVER
+  PERFECT_SCORE
+}
+
+enum VoucherStatus {
+  ACTIVE
+  USED
+  EXPIRED
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+// 1. User
+model User {
+  id            Int       @id @default(autoincrement())
+  fullName      String
+  email         String    @unique
+  password      String
+  role          Role      @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime  @default(now())
+
+  // Relations
+  profile       UserProfile?
+  quizResults   QuizResult[]
+  achievements  Achievement[]
+  vouchers      UserVoucher[]
+  categories    Category[]
+  quizzes       Quiz[]
+  answers       UserQuestionAnswer[]
+
+  @@map("users")
+}
+
+// 2. UserProfile
+model UserProfile {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @unique
+  profilePic      String?
+  bio             String?  @db.Text
+  stats           Json     @default("{\"totalQuizPlayed\": 0, \"highScore\": 0, \"successRate\": 0}")
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+// 3. Category
+model Category {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  createdBy   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator     User     @relation(fields: [createdBy], references: [id])
+  quizzes     Quiz[]
+
+  @@map("categories")
+}
+
+// 4. Quiz
+model Quiz {
+  id          Int        @id @default(autoincrement())
+  title       String
+  description String?    @db.Text
+  difficulty  Difficulty
+  isPublished Boolean    @default(false)
+  categoryId  Int
+  createdBy   Int
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  category    Category   @relation(fields: [categoryId], references: [id])
+  creator     User       @relation(fields: [createdBy], references: [id])
+  questions   Question[]
+  results     QuizResult[]
+  userAnswers UserQuestionAnswer[]
+
+  @@index([categoryId, createdBy])
+  @@map("quizzes")
+}
+
+// 5. Question
+model Question {
+  id          Int      @id @default(autoincrement())
+  text        String   @db.Text
+  timeLimit   Int      @default(20) // সেকেন্ডে
+  quizId      Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  answers     Answer[]
+  userAnswers UserQuestionAnswer[]
+
+  @@index([quizId])
+  @@map("questions")
+}
+
+// 6. Answer
+model Answer {
+  id            Int      @id @default(autoincrement())
+  text          String   @db.Text
+  isCorrect     Boolean
+  questionId    Int
+
+  question      Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userAnswers   UserQuestionAnswer[]
+
+  @@index([questionId])
+  @@map("answers")
+}
+
+// 7. UserQuestionAnswer
+model UserQuestionAnswer {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  questionId      Int
+  quizId          Int      // Add this field
+  selectedAnswerId Int?
+  metrics         Json     @default("{\"timeTaken\": 0, \"coinsEarned\": 0, \"isCorrect\": false}")
+  answeredAt      DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question        Question @relation(fields: [questionId], references: [id])
+  quiz            Quiz     @relation(fields: [quizId], references: [id])    // Add this relation
+  selectedAnswer  Answer?  @relation(fields: [selectedAnswerId], references: [id])
+
+  @@index([userId, questionId])
+  @@index([quizId])    // Add this index
+  @@map("user_question_answers")
+}
+
+// 8. QuizResult
+model QuizResult {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  quizId      Int
+  metrics     Json     @default("{\"score\": 0, \"totalCoins\": 0}")
+  completedAt DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quiz        Quiz     @relation(fields: [quizId], references: [id])
+
+  @@unique([userId, quizId])
+  @@index([userId])
+  @@map("quiz_results")
+}
+
+// 9. Achievement
+model Achievement {
+  id          Int             @id @default(autoincrement())
+  userId      Int
+  title       String
+  description String?         @db.Text
+  type        AchievementType
+  earnedAt    DateTime        @default(now())
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("achievements")
+}
+
+// 10. Voucher
+model Voucher {
+  id          Int           @id @default(autoincrement())
+  name        String
+  code        String        @unique
+  price       Int
+  validity    Json          @default("{\"validFrom\": null, \"validUntil\": null}")
+  createdAt   DateTime      @default(now())
+
+  userVouchers UserVoucher[]
+
+  @@map("vouchers")
+}
+
+// 11. UserVoucher
+model UserVoucher {
+  id          Int           @id @default(autoincrement())
+  userId      Int
+  voucherId   Int
+  status      VoucherStatus @default(ACTIVE)
+  timestamps  Json          @default("{\"purchasedAt\": null, \"usedAt\": null, \"expiresAt\": null}")
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voucher     Voucher       @relation(fields: [voucherId], references: [id])
+
+  @@index([userId, status])
+  @@map("user_vouchers")
+}
