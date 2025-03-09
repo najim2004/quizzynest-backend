@@ -1,3 +1,4 @@
+import { Role } from "@prisma/client";
 import { CommonResponse } from "../types";
 
 export type AuthTokens = {
@@ -28,3 +29,14 @@ export interface LoginResponse extends CommonResponse {
   refreshToken: string;
   expiresIn: number;
 }
+
+export type GetMe = {
+  id: number;
+  email: string;
+  fullName: string;
+  role: Role;
+  profile: {
+    profilePic: string | null;
+    bio: string | null;
+  } | null;
+};

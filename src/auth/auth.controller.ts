@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { AuthService } from "./auth.service";
 import { SignInBody, SignUpBody } from "./auth.types";
-import { ApiResponse } from "../utils/api-response";
+import { ApiResponse } from "../utils/apiResponse";
 
 export class AuthController {
   private authService: AuthService;
@@ -105,6 +105,21 @@ export class AuthController {
       return ApiResponse.unauthorized(
         res,
         error instanceof Error ? error?.message : "Refresh token failed"
+      );
+    }
+  };
+
+  getMe = async (req: Request, res: Response) => {
+    try {
+      if (!req?.user)
+        return ApiResponse.unauthorized(res, "Unauthorized Detected");
+      const id = parseInt(req?.user?.sub);
+      const user = await this.authService.getMe(id);
+      return ApiResponse.success(res, user);
+    } catch (error) {
+      return ApiResponse.unauthorized(
+        res,
+        error instanceof Error ? error?.message : "Get me failed"
       );
     }
   };

@@ -1,6 +1,7 @@
-import { Router, Request, Response, RequestHandler } from "express";
+import { Router } from "express";
 import { AuthController } from "./auth.controller";
-import { ApiResponse } from "../utils/api-response";
+import { authMiddleware } from "../middleware/authMiddleware";
+import { routeHandler } from "../middleware/routeHandler";
 
 class AuthRoute {
   public router: Router;
@@ -16,52 +17,34 @@ class AuthRoute {
     // Register new user
     this.router.post(
       "/register",
-      this.routeHandler(this.authController.signUp.bind(this.authController))
+      routeHandler(this.authController.signUp.bind(this.authController))
     );
 
     // Login user
     this.router.post(
       "/login",
-      this.routeHandler(this.authController.signIn.bind(this.authController))
+      routeHandler(this.authController.signIn.bind(this.authController))
     );
 
     // Refresh token
     this.router.post(
       "/refresh-token",
-      this.routeHandler(
-        this.authController.refreshToken.bind(this.authController)
-      )
+      routeHandler(this.authController.refreshToken.bind(this.authController))
     );
 
     // Get current user profile
-    // this.router.get(
-    //   '/me',
-    //   authMiddleware,
-    //   this.routeHandler(this.authController.getCurrentUser.bind(this.authController))
-    // );
+    this.router.get(
+      "/me",
+      routeHandler(authMiddleware),
+      routeHandler(this.authController.getMe.bind(this.authController))
+    );
 
     // Logout user
     // this.router.post(
     //   '/logout',
     //   authMiddleware,
-    //   this.routeHandler(this.authController.logout.bind(this.authController))
+    //   routeHandler(this.authController.logout.bind(this.authController))
     // );
-  }
-
-  private routeHandler(
-    fn: (req: Request, res: Response) => Promise<any>
-  ): RequestHandler {
-    return async (req: Request, res: Response) => {
-      try {
-        await fn(req, res);
-      } catch (error) {
-        ApiResponse.error(
-          res,
-          error instanceof Error ? error?.message : "Something went wrong",
-          500
-        );
-      }
-    };
   }
 }
 

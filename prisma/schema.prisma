@@ -41,140 +41,121 @@ enum Difficulty {
 
 // 1. User
 model User {
-  id            Int       @id @default(autoincrement())
-  fullName      String
-  email         String    @unique
-  password      String
-  role          Role      @default(USER)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  lastLoginAt   DateTime  @default(now())
+  id          Int      @id @default(autoincrement())
+  fullName    String
+  email       String   @unique
+  password    String
+  role        Role     @default(USER)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastLoginAt DateTime @default(now())
 
   // Relations
-  profile       UserProfile?
-  quizResults   QuizResult[]
-  achievements  Achievement[]
-  vouchers      UserVoucher[]
-  categories    Category[]
-  quizzes       Quiz[]
-  answers       UserQuestionAnswer[]
+  profile      UserProfile? // একজন ইউজারের একটি প্রোফাইল থাকতে পারে
+  quizResults  QuizResult[] // একজন ইউজারের অনেকগুলো কুইজ রেজাল্ট থাকতে পারে
+  achievements Achievement[] // একজন ইউজারের অনেকগুলো অ্যাচিভমেন্ট থাকতে পারে
+  vouchers     UserVoucher[] // একজন ইউজারের অনেকগুলো ভাউচার থাকতে পারে
+  categories   Category[] // একজন ইউজার অনেকগুলো ক্যাটাগরি তৈরি করতে পারে
+  quizzes      Quiz[] // একজন ইউজার অনেকগুলো কুইজ তৈরি করতে পারে
+  answers      UserQuestionAnswer[] // একজন ইউজার অনেকগুলো প্রশ্নের উত্তর দিতে পারে
 
   @@map("users")
 }
 
 // 2. UserProfile
 model UserProfile {
-  id              Int      @id @default(autoincrement())
-  userId          Int      @unique
-  profilePic      String?
-  bio             String?  @db.Text
-  stats           Json     @default("{\"totalQuizPlayed\": 0, \"highScore\": 0, \"successRate\": 0}")
+  id         Int     @id @default(autoincrement())
+  userId     Int     @unique
+  profilePic String?
+  bio        String? @db.Text
 
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade) // প্রতিটি প্রোফাইল একজন ইউজারের সাথে সম্পর্কিত
 
   @@map("user_profiles")
 }
 
 // 3. Category
 model Category {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  createdBy   Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdBy Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  creator     User     @relation(fields: [createdBy], references: [id])
-  quizzes     Quiz[]
+  creator User   @relation(fields: [createdBy], references: [id]) // কোন ইউজার এই ক্যাটাগরি তৈরি করেছে
+  quizzes Quiz[] // এই ক্যাটাগরিতে কতগুলো কুইজ আছে
 
   @@map("categories")
 }
 
 // 4. Quiz
 model Quiz {
-  id          Int        @id @default(autoincrement())
-  title       String
-  description String?    @db.Text
+  id          Int                  @id @default(autoincrement())
+  question    String
+  timeLimit   Int                  @default(20) // সেকেন্ডে
+  maxPrice    Int                  @default(0) // New field for max price
+  description String?              @db.Text
   difficulty  Difficulty
-  isPublished Boolean    @default(false)
   categoryId  Int
   createdBy   Int
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  category    Category             @relation(fields: [categoryId], references: [id]) // কোন ক্যাটাগরির কুইজ
+  creator     User                 @relation(fields: [createdBy], references: [id]) // কে এই কুইজ তৈরি করেছে
+  answers     Answer[] // এই কুইজের সম্ভাব্য উত্তরগুলো
+  userAnswers UserQuestionAnswer[] // ইউজারদের দেওয়া উত্তরগুলো
 
-  category    Category   @relation(fields: [categoryId], references: [id])
-  creator     User       @relation(fields: [createdBy], references: [id])
-  questions   Question[]
-  results     QuizResult[]
-  userAnswers UserQuestionAnswer[]
-
-  @@index([categoryId, createdBy])
+  @@index([categoryId, createdBy, createdAt])
   @@map("quizzes")
-}
-
-// 5. Question
-model Question {
-  id          Int      @id @default(autoincrement())
-  text        String   @db.Text
-  timeLimit   Int      @default(20) // সেকেন্ডে
-  quizId      Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
-  answers     Answer[]
-  userAnswers UserQuestionAnswer[]
-
-  @@index([quizId])
-  @@map("questions")
 }
 
 // 6. Answer
 model Answer {
-  id            Int      @id @default(autoincrement())
-  text          String   @db.Text
-  isCorrect     Boolean
-  questionId    Int
+  id          Int                  @id @default(autoincrement())
+  text        String               @db.Text
+  isCorrect   Boolean
+  quizId      Int
+  quiz        Quiz                 @relation(fields: [quizId], references: [id], onDelete: Cascade) // কোন কুইজের উত্তর
+  userAnswers UserQuestionAnswer[] // কোন ইউজাররা এই উত্তরটি বেছে নিয়েছে
 
-  question      Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  userAnswers   UserQuestionAnswer[]
-
-  @@index([questionId])
+  @@index([quizId])
   @@map("answers")
 }
 
 // 7. UserQuestionAnswer
 model UserQuestionAnswer {
-  id              Int      @id @default(autoincrement())
-  userId          Int
-  questionId      Int
-  quizId          Int      // Add this field
+  id               Int                     @id @default(autoincrement())
+  userId           Int
+  quizId           Int
+  quizResultId     Int? // New field to link with QuizResult
   selectedAnswerId Int?
-  metrics         Json     @default("{\"timeTaken\": 0, \"coinsEarned\": 0, \"isCorrect\": false}")
-  answeredAt      DateTime @default(now())
+  answeredAt       DateTime                @default(now())
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade) // কোন ইউজার উত্তর দিয়েছে
+  quiz             Quiz                    @relation(fields: [quizId], references: [id]) // কোন কুইজের উত্তর
+  selectedAnswer   Answer?                 @relation(fields: [selectedAnswerId], references: [id]) // কোন উত্তরটি সিলেক্ট করা হয়েছে
+  quizResult       QuizResult?             @relation(fields: [quizResultId], references: [id]) // কোন কুইজ রেজাল্টের অংশ
+  metrics          QuestionAttemptMetrics? // এই উত্তরের পারফরম্যান্স মেট্রিক্স
 
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  question        Question @relation(fields: [questionId], references: [id])
-  quiz            Quiz     @relation(fields: [quizId], references: [id])    // Add this relation
-  selectedAnswer  Answer?  @relation(fields: [selectedAnswerId], references: [id])
-
-  @@index([userId, questionId])
-  @@index([quizId])    // Add this index
+  @@index([userId, quizId, answeredAt])
   @@map("user_question_answers")
 }
 
 // 8. QuizResult
 model QuizResult {
-  id          Int      @id @default(autoincrement())
-  userId      Int
-  quizId      Int
-  metrics     Json     @default("{\"score\": 0, \"totalCoins\": 0}")
-  completedAt DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  userId           Int
+  totalQuestions   Int      @default(0)
+  correctAnswers   Int      @default(0)
+  totalTimeSpent   Int // Total time spent in seconds
+  totalCoinsEarned Int      @default(0)
+  accuracy         Float    @default(0) // Percentage of correct answers
+  completedAt      DateTime @default(now())
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  quiz        Quiz     @relation(fields: [quizId], references: [id])
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade) // কোন ইউজারের রেজাল্ট
+  questionResults UserQuestionAnswer[] // এই রেজাল্টে কোন কোন প্রশ্নের উত্তর দেওয়া হয়েছে
 
-  @@unique([userId, quizId])
   @@index([userId])
+  @@index([completedAt]) // For time-based analytics
   @@map("quiz_results")
 }
 
@@ -187,7 +168,7 @@ model Achievement {
   type        AchievementType
   earnedAt    DateTime        @default(now())
 
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade) // কোন ইউজার এই অ্যাচিভমেন্ট অর্জন করেছে
 
   @@index([userId, type])
   @@map("achievements")
@@ -195,29 +176,43 @@ model Achievement {
 
 // 10. Voucher
 model Voucher {
-  id          Int           @id @default(autoincrement())
-  name        String
-  code        String        @unique
-  price       Int
-  validity    Json          @default("{\"validFrom\": null, \"validUntil\": null}")
-  createdAt   DateTime      @default(now())
+  id        Int      @id @default(autoincrement())
+  name      String
+  code      String   @unique
+  price     Int
+  validity  Json     @default("{\"validFrom\": null, \"validUntil\": null}")
+  createdAt DateTime @default(now())
 
-  userVouchers UserVoucher[]
+  userVouchers UserVoucher[] // কোন ইউজাররা এই ভাউচার ব্যবহার করেছে
 
   @@map("vouchers")
 }
 
 // 11. UserVoucher
 model UserVoucher {
-  id          Int           @id @default(autoincrement())
-  userId      Int
-  voucherId   Int
-  status      VoucherStatus @default(ACTIVE)
-  timestamps  Json          @default("{\"purchasedAt\": null, \"usedAt\": null, \"expiresAt\": null}")
+  id         Int           @id @default(autoincrement())
+  userId     Int
+  voucherId  Int
+  status     VoucherStatus @default(ACTIVE)
+  timestamps Json          @default("{\"purchasedAt\": null, \"usedAt\": null, \"expiresAt\": null}")
 
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  voucher     Voucher       @relation(fields: [voucherId], references: [id])
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade) // কোন ইউজার এই ভাউচার ব্যবহার করেছে
+  voucher Voucher @relation(fields: [voucherId], references: [id]) // কোন ভাউচার ব্যবহার করা হয়েছে
 
   @@index([userId, status])
   @@map("user_vouchers")
+}
+
+// New model for question attempt metrics
+model QuestionAttemptMetrics {
+  id           Int      @id @default(autoincrement())
+  userAnswerId Int      @unique
+  timeTaken    Int // in seconds
+  coinsEarned  Int      @default(0)
+  isCorrect    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  userAnswer UserQuestionAnswer @relation(fields: [userAnswerId], references: [id], onDelete: Cascade) // কোন উত্তরের মেট্রিক্স
+
+  @@map("question_attempt_metrics")
 }

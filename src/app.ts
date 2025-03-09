@@ -8,6 +8,7 @@ import { connectDB } from "./config/database";
 import { errorHandler } from "./middleware/errorHandler";
 import { notFoundHandler } from "./middleware/notFoundHandler";
 import { authRouter } from "./auth/auth.route";
+import { profileRouter } from "./profile/profile.route";
 class App {
   private app: Application;
 
@@ -47,6 +48,7 @@ class App {
     });
 
     this.app.use("/api/auth", authRouter);
+    this.app.use("/api/user", profileRouter);
   }
 
   private initializeErrorHandling(): void {

@@ -2,7 +2,7 @@ import { compare, hash } from "bcryptjs";
 import { JwtPayload, sign, verify } from "jsonwebtoken";
 import { PrismaClient, User } from "@prisma/client";
 import { prisma } from "../config/database";
-import { AuthTokens, JwtPayloadInput, SignUpBody } from "./auth.types";
+import { AuthTokens, GetMe, JwtPayloadInput, SignUpBody } from "./auth.types";
 
 export class AuthService {
   private prisma: PrismaClient;
@@ -11,13 +11,6 @@ export class AuthService {
     this.prisma = prisma;
   }
 
-  /**
-   * Creates a new user.
-   *
-   * @param data - The user details to use when creating the user.
-   * @returns A boolean indicating whether the user was created successfully.
-   * @throws An error if the email already exists.
-   */
   async signUp(data: SignUpBody): Promise<boolean> {
     const existingUser = await this.prisma.user.findUnique({
       where: { email: data.email },
@@ -132,5 +125,29 @@ export class AuthService {
     hashedPassword: string
   ): Promise<boolean> {
     return compare(password, hashedPassword);
+  }
+
+  async getMe(id: number): Promise<GetMe> {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        profile: {
+          select: {
+            profilePic: true,
+            bio: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    return user;
   }
 }
