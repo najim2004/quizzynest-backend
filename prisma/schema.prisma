@@ -39,6 +39,12 @@ enum Difficulty {
   HARD
 }
 
+enum SessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
 // 1. User
 model User {
   id          Int      @id @default(autoincrement())
@@ -58,7 +64,12 @@ model User {
   categories   Category[] // একজন ইউজার অনেকগুলো ক্যাটাগরি তৈরি করতে পারে
   quizzes      Quiz[] // একজন ইউজার অনেকগুলো কুইজ তৈরি করতে পারে
   answers      UserQuestionAnswer[] // একজন ইউজার অনেকগুলো প্রশ্নের উত্তর দিতে পারে
+  quizSessions QuizSession[] // একজন ইউজারের অনেকগুলো কুইজ সেশন থাকতে পারে
 
+  @@index([email])
+  @@index([role])
+  @@index([lastLoginAt])
+  @@index([createdAt])
   @@map("users")
 }
 
@@ -71,6 +82,7 @@ model UserProfile {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade) // প্রতিটি প্রোফাইল একজন ইউজারের সাথে সম্পর্কিত
 
+  @@index([userId])
   @@map("user_profiles")
 }
 
@@ -85,6 +97,9 @@ model Category {
   creator User   @relation(fields: [createdBy], references: [id]) // কোন ইউজার এই ক্যাটাগরি তৈরি করেছে
   quizzes Quiz[] // এই ক্যাটাগরিতে কতগুলো কুইজ আছে
 
+  @@index([createdBy])
+  @@index([createdAt])
+  @@index([name])
   @@map("categories")
 }
 
@@ -105,6 +120,11 @@ model Quiz {
   answers     Answer[] // এই কুইজের সম্ভাব্য উত্তরগুলো
   userAnswers UserQuestionAnswer[] // ইউজারদের দেওয়া উত্তরগুলো
 
+  @@index([categoryId])
+  @@index([createdBy])
+  @@index([difficulty])
+  @@index([createdAt])
+  @@index([categoryId, difficulty]) // For filtering by both
   @@index([categoryId, createdBy, createdAt])
   @@map("quizzes")
 }
@@ -119,6 +139,7 @@ model Answer {
   userAnswers UserQuestionAnswer[] // কোন ইউজাররা এই উত্তরটি বেছে নিয়েছে
 
   @@index([quizId])
+  @@index([quizId, isCorrect])
   @@map("answers")
 }
 
@@ -130,32 +151,44 @@ model UserQuestionAnswer {
   quizResultId     Int? // New field to link with QuizResult
   selectedAnswerId Int?
   answeredAt       DateTime                @default(now())
+  sessionId        Int?
   user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade) // কোন ইউজার উত্তর দিয়েছে
   quiz             Quiz                    @relation(fields: [quizId], references: [id]) // কোন কুইজের উত্তর
   selectedAnswer   Answer?                 @relation(fields: [selectedAnswerId], references: [id]) // কোন উত্তরটি সিলেক্ট করা হয়েছে
   quizResult       QuizResult?             @relation(fields: [quizResultId], references: [id]) // কোন কুইজ রেজাল্টের অংশ
+  session          QuizSession?            @relation(fields: [sessionId], references: [id])
   metrics          QuestionAttemptMetrics? // এই উত্তরের পারফরম্যান্স মেট্রিক্স
 
-  @@index([userId, quizId, answeredAt])
+  @@index([userId])
+  @@index([quizId])
+  @@index([sessionId])
+  @@index([answeredAt])
+  @@index([quizResultId])
+  @@index([userId, quizId])
+  @@index([userId, sessionId])
+  @@index([userId, quizId, sessionId, answeredAt])
   @@map("user_question_answers")
 }
 
 // 8. QuizResult
 model QuizResult {
-  id               Int      @id @default(autoincrement())
+  id               Int          @id @default(autoincrement())
   userId           Int
-  totalQuestions   Int      @default(0)
-  correctAnswers   Int      @default(0)
+  totalQuestions   Int          @default(0)
+  correctAnswers   Int          @default(0)
   totalTimeSpent   Int // Total time spent in seconds
-  totalCoinsEarned Int      @default(0)
-  accuracy         Float    @default(0) // Percentage of correct answers
-  completedAt      DateTime @default(now())
+  totalCoinsEarned Int          @default(0)
+  accuracy         Float        @default(0) // Percentage of correct answers
+  completedAt      DateTime     @default(now())
+  session          QuizSession? // কোন সেশন থেকে এই রেজাল্ট তৈরি হয়েছে
 
-  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade) // কোন ইউজারের রেজাল্ট
-  questionResults UserQuestionAnswer[] // এই রেজাল্টে কোন কোন প্রশ্নের উত্তর দেওয়া হয়েছে
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questionResults UserQuestionAnswer[]
 
   @@index([userId])
-  @@index([completedAt]) // For time-based analytics
+  @@index([completedAt])
+  @@index([userId, completedAt])
+  @@index([accuracy])
   @@map("quiz_results")
 }
 
@@ -170,7 +203,11 @@ model Achievement {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade) // কোন ইউজার এই অ্যাচিভমেন্ট অর্জন করেছে
 
+  @@index([userId])
+  @@index([type])
+  @@index([earnedAt])
   @@index([userId, type])
+  @@index([userId, earnedAt])
   @@map("achievements")
 }
 
@@ -185,6 +222,9 @@ model Voucher {
 
   userVouchers UserVoucher[] // কোন ইউজাররা এই ভাউচার ব্যবহার করেছে
 
+  @@index([code])
+  @@index([price])
+  @@index([createdAt])
   @@map("vouchers")
 }
 
@@ -199,7 +239,11 @@ model UserVoucher {
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade) // কোন ইউজার এই ভাউচার ব্যবহার করেছে
   voucher Voucher @relation(fields: [voucherId], references: [id]) // কোন ভাউচার ব্যবহার করা হয়েছে
 
+  @@index([userId])
+  @@index([voucherId])
+  @@index([status])
   @@index([userId, status])
+  @@index([userId, voucherId])
   @@map("user_vouchers")
 }
 
@@ -214,5 +258,35 @@ model QuestionAttemptMetrics {
 
   userAnswer UserQuestionAnswer @relation(fields: [userAnswerId], references: [id], onDelete: Cascade) // কোন উত্তরের মেট্রিক্স
 
+  @@index([createdAt])
+  @@index([isCorrect])
+  @@index([userAnswerId])
   @@map("question_attempt_metrics")
+}
+
+// New QuizSession model
+model QuizSession {
+  id              Int       @id @default(autoincrement())
+  userId          Int
+  resultId        Int?      @unique // Add @unique here
+  selectedQuizIds Json // প্রশ্নের আইডিগুলোর অ্যারে, যেমন [1, 2, 3]
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime? // শেষ না হলে null
+  status          String    @default("IN_PROGRESS")
+  totalQuestions  Int       @default(0)
+  answeredCount   Int       @default(0)
+
+  // Relations
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quizResult      QuizResult?          @relation(fields: [resultId], references: [id])
+  questionAnswers UserQuestionAnswer[]
+
+  // Indexes for better query performance
+  @@index([userId])
+  @@index([startedAt])
+  @@index([status])
+  @@index([completedAt])
+  @@index([userId, status])
+  @@index([userId, startedAt])
+  @@map("quiz_sessions")
 }

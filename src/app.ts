@@ -9,6 +9,7 @@ import { errorHandler } from "./middleware/errorHandler";
 import { notFoundHandler } from "./middleware/notFoundHandler";
 import { authRouter } from "./auth/auth.route";
 import { profileRouter } from "./profile/profile.route";
+import { quizRouter } from "./quiz/quiz.route";
 class App {
   private app: Application;
 
@@ -49,6 +50,7 @@ class App {
 
     this.app.use("/api/auth", authRouter);
     this.app.use("/api/user", profileRouter);
+    this.app.use("/api/quiz", quizRouter);
   }
 
   private initializeErrorHandling(): void {

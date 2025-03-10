@@ -152,4 +152,14 @@ export class ApiResponse {
   ): Response<IApiResponse<null>> {
     return this.success(res, null, message, HttpStatus.NO_CONTENT);
   }
+
+  /**
+   * Creates a 500 Internal Server Error response
+   */
+  static serverError(
+    res: Response,
+    message = "Internal server error occurred"
+  ): Response<IApiResponse<null>> {
+    return this.error(res, message, HttpStatus.INTERNAL_SERVER_ERROR);
+  }
 }
