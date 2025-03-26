@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
+import cookieParser from "cookie-parser";
 import { rateLimit } from "express-rate-limit";
 import { connectDB } from "./config/database";
 import { errorHandler } from "./middleware/errorHandler";
@@ -23,7 +24,13 @@ class App {
   private initializeMiddlewares(): void {
     // Security middlewares
     this.app.use(helmet());
-    this.app.use(cors());
+    this.app.use(cookieParser());
+    this.app.use(
+      cors({
+        origin:["http://localhost:3000"],
+        credentials: true,
+      })
+    );
 
     // Request parsing
     this.app.use(express.json());

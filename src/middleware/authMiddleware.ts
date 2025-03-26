@@ -42,8 +42,8 @@ export const authMiddleware = async (
 
         res.cookie("refreshToken", newRefreshToken, {
           httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "strict",
+          secure: process.env.NODE_ENV === "production" ? true : false,
+          sameSite: "none",
           maxAge: 7 * 24 * 60 * 60 * 1000,
         });
         res.setHeader("Authorization", `Bearer ${newAccessToken}`);
