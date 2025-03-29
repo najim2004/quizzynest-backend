@@ -11,6 +11,8 @@ import { notFoundHandler } from "./middleware/notFoundHandler";
 import { authRouter } from "./auth/auth.route";
 import { profileRouter } from "./profile/profile.route";
 import { quizRouter } from "./quiz/quiz.route";
+import { categoryRouter } from "./category/category.route";
+import path from "path";
 class App {
   private app: Application;
 
@@ -27,7 +29,7 @@ class App {
     this.app.use(cookieParser());
     this.app.use(
       cors({
-        origin:["http://localhost:3000"],
+        origin: ["http://localhost:3000"],
         credentials: true,
       })
     );
@@ -46,6 +48,10 @@ class App {
       max: 100, // limit each IP to 100 requests per windowMs
     });
     this.app.use(limiter);
+    this.app.use(
+      "/uploads",
+      express.static(path.join(__dirname, "../uploads"))
+    );
   }
 
   private initializeRoutes(): void {
@@ -56,8 +62,9 @@ class App {
     });
 
     this.app.use("/api/auth", authRouter);
-    this.app.use("/api/user", profileRouter);
-    this.app.use("/api/quiz", quizRouter);
+    this.app.use("/api/users", profileRouter);
+    this.app.use("/api/quizzes", quizRouter);
+    this.app.use("/api/categories", categoryRouter);
   }
 
   private initializeErrorHandling(): void {

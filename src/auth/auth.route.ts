@@ -40,11 +40,11 @@ class AuthRoute {
     );
 
     // Logout user
-    // this.router.post(
-    //   '/logout',
-    //   authMiddleware,
-    //   routeHandler(this.authController.logout.bind(this.authController))
-    // );
+    this.router.post(
+      "/logout",
+      routeHandler(authMiddleware),
+      routeHandler(this.authController.signOut.bind(this.authController))
+    );
   }
 }
 

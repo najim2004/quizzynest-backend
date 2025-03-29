@@ -29,8 +29,10 @@ export const authMiddleware = async (
       return next();
     } catch {
       const refreshToken = req?.cookies?.refreshToken;
-      if (!refreshToken)
+      if (!refreshToken) {
+        res.clearCookie("refreshToken");
         return ApiResponse.unauthorized(res, "No refresh token");
+      }
 
       try {
         const decoded = jwt.verify(
@@ -51,6 +53,7 @@ export const authMiddleware = async (
         req.user = decoded;
         return next();
       } catch {
+        res.clearCookie("refreshToken");
         return ApiResponse.unauthorized(res, "Invalid refresh token");
       }
     }

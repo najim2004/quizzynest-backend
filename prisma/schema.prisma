@@ -88,11 +88,15 @@ model UserProfile {
 
 // 3. Category
 model Category {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  createdBy Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?  @db.Text
+  createdBy   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  color       String?  @default("#FFFFFF") // ক্যাটাগরির জন্য একটি রঙ
+  icon        String?  @default("https://www.svgrepo.com/show/445599/category.svg") // ক্যাটাগরির জন্য একটি আইকন
+  iconId      String?
 
   creator User   @relation(fields: [createdBy], references: [id]) // কোন ইউজার এই ক্যাটাগরি তৈরি করেছে
   quizzes Quiz[] // এই ক্যাটাগরিতে কতগুলো কুইজ আছে
