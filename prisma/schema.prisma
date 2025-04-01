@@ -112,7 +112,7 @@ model Quiz {
   id          Int                  @id @default(autoincrement())
   question    String
   timeLimit   Int                  @default(20) // সেকেন্ডে
-  maxPrice    Int                  @default(0) // New field for max price
+  maxPrize    Int                  @default(0) // New field for max price
   description String?              @db.Text
   difficulty  Difficulty
   categoryId  Int
@@ -138,6 +138,7 @@ model Answer {
   id          Int                  @id @default(autoincrement())
   text        String               @db.Text
   isCorrect   Boolean
+  label       String? // Answer label (A, B, C, D)
   quizId      Int
   quiz        Quiz                 @relation(fields: [quizId], references: [id], onDelete: Cascade) // কোন কুইজের উত্তর
   userAnswers UserQuestionAnswer[] // কোন ইউজাররা এই উত্তরটি বেছে নিয়েছে

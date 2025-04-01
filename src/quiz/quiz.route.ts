@@ -24,11 +24,20 @@ class QuizRoute {
     this.router.get(
       "/",
       routeHandler(authMiddleware),
-      routeHandler(this.quizController.getQuizzes.bind(this.quizController))
+      routeHandler(
+        this.quizController.startQuizSession.bind(this.quizController)
+      )
+    );
+
+    // User routes (auth required)
+    this.router.get(
+      "/next",
+      routeHandler(authMiddleware),
+      routeHandler(this.quizController.getNextQuiz.bind(this.quizController))
     );
 
     this.router.post(
-      "/",
+      "/admin",
       routeHandler(authMiddleware),
       routeHandler(this.quizController.createQuiz.bind(this.quizController))
     );
@@ -61,7 +70,7 @@ class QuizRoute {
 
     // Admin routes
     this.router.get(
-      "/admin/quizzes",
+      "/admin",
       routeHandler(authMiddleware),
       routeHandler(
         this.quizController.getQuizzesForAdmin.bind(this.quizController)

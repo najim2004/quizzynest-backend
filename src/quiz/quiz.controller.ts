@@ -72,9 +72,9 @@ export class QuizController {
   };
 
   /**
-   * Get filtered quizzes for users
+   * Start a new quiz session
    */
-  getQuizzes = async (req: Request, res: Response) => {
+  startQuizSession = async (req: Request, res: Response) => {
     try {
       if (!req.user) {
         return ApiResponse.unauthorized(res, "Unauthorized access");
@@ -94,10 +94,36 @@ export class QuizController {
           : undefined,
       };
 
-      const result = await this.quizService.getQuizzes(userId, filters);
+      const result = await this.quizService.startQuizSession(userId, filters);
       return ApiResponse.success(res, result);
     } catch (error) {
       console.error("[Quiz Controller] Get quizzes error:", error);
+      return ApiResponse.error(
+        res,
+        error instanceof Error ? error.message : "Internal Server Error",
+        500
+      );
+    }
+  };
+
+  /**
+   * Get next quiz for users
+   */
+
+  getNextQuiz = async (req: Request, res: Response) => {
+    try {
+      if (!req.user) {
+        return ApiResponse.unauthorized(res, "Unauthorized Detected");
+      }
+      const userId = parseInt(req.user.sub);
+      const { sessionId, currentQuizId } = req.query;
+      const result = await this.quizService.getNextQuiz(
+        userId,
+        parseInt(sessionId as string),
+        parseInt(currentQuizId as string)
+      );
+      return ApiResponse.success(res, result);
+    } catch (error) {
       return ApiResponse.error(
         res,
         error instanceof Error ? error.message : "Internal Server Error",
@@ -256,6 +282,10 @@ export class QuizController {
       );
     }
   };
+
+  /**
+   * Create quiz result
+   */
   createQuizResult = async (req: Request, res: Response) => {
     try {
       if (!req.user)

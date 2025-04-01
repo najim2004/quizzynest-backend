@@ -3,11 +3,12 @@ import { Difficulty, Quiz } from "@prisma/client";
 export interface CreateQuizDto {
   question: string;
   timeLimit?: number;
-  maxPrice?: number;
+  maxPrize?: number;
   description?: string;
   difficulty: Difficulty;
   categoryId: number;
   answers: {
+    label: "A" | "B" | "C" | "D";
     text: string;
     isCorrect: boolean;
   }[];

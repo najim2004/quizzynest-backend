@@ -78,88 +78,140 @@ export class QuizService {
     return quiz;
   }
 
-  /**
-   * Get filtered quizzes with pagination
-   */
-  async getQuizzes(userId: number, filters: QuizFilterDto) {
+  async startQuizSession(userId: number, filters: QuizFilterDto) {
     return this.prisma.$transaction(async (tx) => {
-      // Start a new session
-      const session = await tx.quizSession.create({
-        data: {
-          userId,
-          status: "IN_PROGRESS",
-          startedAt: new Date(),
-          selectedQuizIds: "[]",
-        },
-      });
-
-      if (!session) {
-        throw new Error("Failed to start quiz session");
-      }
-
       const { limit = 10, difficulty, categoryId } = filters;
       const where = {
         ...(difficulty && { difficulty }),
         ...(categoryId && { categoryId }),
       };
 
-      const total = await tx.quiz.count({ where });
-      let quizzes: Quiz[];
+      const selectedQuizIds = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id
+        FROM "quizzes"
+        WHERE ${this.buildWhereClause(where)}
+        ORDER BY RANDOM()
+        LIMIT ${limit}
+      `;
 
-      if (total <= limit) {
-        quizzes = await tx.quiz.findMany({
-          where,
-          include: { category: true, answers: true },
-          orderBy: { id: "asc" },
-        });
+      if (selectedQuizIds.length === 0) {
+        throw new Error("No quizzes available after random selection");
+      }
 
-        for (let i = quizzes.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [quizzes[i], quizzes[j]] = [quizzes[j], quizzes[i]];
-        }
-      } else {
-        quizzes = await tx.$queryRaw`
-      SELECT q.*, c.*, a.*
-      FROM "Quiz" q
-      LEFT JOIN "Category" c ON q."categoryId" = c.id
-      LEFT JOIN "Answer" a ON q.id = a."quizId"
-      WHERE ${this.buildWhereClause(where)}
-      ORDER BY RANDOM()
-      LIMIT ${limit}
-    `;
-      }
-      if (quizzes.length === 0) {
-        throw new Error("No quizzes available after query execution"); // Abort transaction
-      }
-      // Update session with selected quiz IDs
-      await tx.quizSession.update({
-        where: { id: session.id },
+      const quizIds = selectedQuizIds.map((q) => q.id);
+
+      const session = await tx.quizSession.create({
         data: {
-          selectedQuizIds: JSON.stringify(quizzes.map((q) => q.id)),
+          userId,
+          status: "IN_PROGRESS",
+          startedAt: new Date(),
+          selectedQuizIds: JSON.stringify(quizIds),
+          totalQuestions: quizIds.length,
         },
       });
 
+      const firstQuizId = quizIds[0];
+      const firstQuiz = await tx.quiz.findUnique({
+        where: { id: firstQuizId },
+        include: { category: true, answers: true },
+      });
+
+      if (!firstQuiz) {
+        throw new Error("Failed to fetch first quiz");
+      }
+
+      const nextQuizId = quizIds.length > 1 ? quizIds[1] : null;
+
+      const currentQuizWithDetails = {
+        ...firstQuiz,
+        currentQuizIndex: 0,
+        nextQuizId,
+        previousQuizId: null,
+      };
+
       return {
         sessionId: session.id,
-        data: quizzes,
-        meta: {
-          total,
-          limit,
-        },
+        currentQuiz: currentQuizWithDetails,
+        totalQuizzes: quizIds.length,
       };
     });
   }
 
-  // where ক্লজ তৈরির হেল্পার ফাংশন
+  async getNextQuiz(
+    userId: number,
+    sessionId: number,
+    currentQuizId: number
+  ): Promise<{
+    currentQuiz:
+      | (Quiz & {
+          currentQuizIndex: number;
+          previousQuizId: number | null;
+          nextQuizId: number | null;
+        })
+      | null;
+  } | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const session = await tx.quizSession.findFirst({
+        where: {
+          id: sessionId,
+          userId,
+          status: "IN_PROGRESS",
+        },
+      });
+
+      if (!session) {
+        throw new Error("Invalid or completed session");
+      }
+
+      const selectedQuizIds = JSON.parse(session.selectedQuizIds as string);
+
+      const currentIndex = selectedQuizIds.indexOf(currentQuizId);
+      if (currentIndex === -1) {
+        throw new Error("Current quiz not found in session");
+      }
+
+      const nextIndex = currentIndex + 1;
+      if (nextIndex >= selectedQuizIds.length) {
+        return null;
+      }
+
+      const nextQuizId = selectedQuizIds[nextIndex];
+      const nextQuiz = await tx.quiz.findUnique({
+        where: { id: nextQuizId },
+        include: { category: true, answers: true },
+      });
+
+      if (!nextQuiz) {
+        throw new Error("Failed to fetch next quiz");
+      }
+
+      const previousQuizId =
+        currentIndex > 0 ? selectedQuizIds[currentIndex - 1] : null;
+      const followingQuizId =
+        nextIndex + 1 < selectedQuizIds.length
+          ? selectedQuizIds[nextIndex + 1]
+          : null;
+
+      const currentQuizWithDetails = {
+        ...nextQuiz,
+        currentQuizIndex: nextIndex,
+        previousQuizId,
+        nextQuizId: followingQuizId,
+      };
+
+      return {
+        currentQuiz: currentQuizWithDetails,
+      };
+    });
+  }
+
   private buildWhereClause(where: any) {
     const conditions = [];
     if (where.difficulty)
-      conditions.push(`q.difficulty = '${where.difficulty}'`);
-    if (where.categoryId)
-      conditions.push(`q."categoryId" = ${where.categoryId}`);
+      conditions.push(`"difficulty" = '${where.difficulty}'`);
+    if (where.categoryId) conditions.push(`"categoryId" = ${where.categoryId}`);
     return conditions.length > 0 ? conditions.join(" AND ") : "1=1";
   }
-
   /**
    * Get filtered quizzes with pagination for admin
    */
@@ -357,7 +409,7 @@ export class QuizService {
         const metrics: MetricsData = {
           isCorrect: selectedAnswer.isCorrect,
           timeTaken: 0, // Will be calculated from client
-          coinsEarned: selectedAnswer.isCorrect ? quiz.maxPrice : 0,
+          coinsEarned: selectedAnswer.isCorrect ? quiz.maxPrize : 0,
         };
 
         await Promise.all([
