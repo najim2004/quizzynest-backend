@@ -1,4 +1,13 @@
-import { PrismaClient, Quiz, QuizResult } from "@prisma/client";
+import {
+  PrismaClient,
+  Quiz,
+  QuizResult,
+  Difficulty,
+  Prisma,
+  QuizSession,
+  UserQuestionAnswer,
+} from "@prisma/client"; // Add Prisma import
+import * as crypto from "crypto";
 import {
   CreateQuizDto,
   UpdateQuizDto,
@@ -6,13 +15,22 @@ import {
   AdminQuizFilterDto,
   QuizAnswerResponse,
   MetricsData,
+  ClientQuiz,
+  QuizSessionResponse,
+  SubmitQuizAnswerResponse,
 } from "./quiz.type";
 
 export class QuizService {
   private prisma: PrismaClient;
+  private encryptionKey: Buffer;
+  private readonly ivLength: number = 16;
 
   constructor() {
     this.prisma = new PrismaClient();
+    // Create a 32-byte key using SHA-256 hash of the original key
+    const rawKey =
+      process.env.ENCRYPTION_KEY || "mysecretkey12345678901234567890";
+    this.encryptionKey = crypto.createHash("sha256").update(rawKey).digest();
   }
 
   /**
@@ -78,18 +96,32 @@ export class QuizService {
     return quiz;
   }
 
-  async startQuizSession(userId: number, filters: QuizFilterDto) {
+  async startQuizSession(
+    userId: number,
+    filters: QuizFilterDto
+  ): Promise<QuizSessionResponse> {
     return this.prisma.$transaction(async (tx) => {
       const { limit = 10, difficulty, categoryId } = filters;
-      const where = {
-        ...(difficulty && { difficulty }),
-        ...(categoryId && { categoryId }),
-      };
+
+      // Build conditions array
+      const conditions: Prisma.Sql[] = [];
+      if (difficulty) {
+        conditions.push(Prisma.sql`difficulty = ${difficulty}`);
+      }
+      if (categoryId) {
+        conditions.push(Prisma.sql`"categoryId" = ${categoryId}`);
+      }
+
+      // Construct the WHERE clause
+      const whereClause =
+        conditions.length > 0
+          ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`
+          : Prisma.sql`WHERE TRUE`;
 
       const selectedQuizIds = await tx.$queryRaw<{ id: number }[]>`
         SELECT id
         FROM "quizzes"
-        WHERE ${this.buildWhereClause(where)}
+        ${whereClause}
         ORDER BY RANDOM()
         LIMIT ${limit}
       `;
@@ -113,20 +145,28 @@ export class QuizService {
       const firstQuizId = quizIds[0];
       const firstQuiz = await tx.quiz.findUnique({
         where: { id: firstQuizId },
-        include: { category: true, answers: true },
+        include: { answers: true },
       });
 
       if (!firstQuiz) {
         throw new Error("Failed to fetch first quiz");
       }
+      const startTime = new Date();
+      const encryptedStartTime = this.encryptStartTime(startTime);
 
-      const nextQuizId = quizIds.length > 1 ? quizIds[1] : null;
+      // Update the answer filtering to preserve the label type
+      const filteredAnswers = firstQuiz.answers.map(
+        ({ isCorrect, ...rest }) => ({
+          ...rest,
+          label: rest.label as "A" | "B" | "C" | "D", // Ensure correct label type
+        })
+      );
 
-      const currentQuizWithDetails = {
+      const currentQuizWithDetails: ClientQuiz = {
         ...firstQuiz,
+        answers: filteredAnswers,
         currentQuizIndex: 0,
-        nextQuizId,
-        previousQuizId: null,
+        startTime: encryptedStartTime,
       };
 
       return {
@@ -137,81 +177,29 @@ export class QuizService {
     });
   }
 
-  async getNextQuiz(
-    userId: number,
-    sessionId: number,
-    currentQuizId: number
-  ): Promise<{
-    currentQuiz:
-      | (Quiz & {
-          currentQuizIndex: number;
-          previousQuizId: number | null;
-          nextQuizId: number | null;
-        })
-      | null;
-  } | null> {
-    return this.prisma.$transaction(async (tx) => {
-      const session = await tx.quizSession.findFirst({
-        where: {
-          id: sessionId,
-          userId,
-          status: "IN_PROGRESS",
-        },
-      });
-
-      if (!session) {
-        throw new Error("Invalid or completed session");
-      }
-
-      const selectedQuizIds = JSON.parse(session.selectedQuizIds as string);
-
-      const currentIndex = selectedQuizIds.indexOf(currentQuizId);
-      if (currentIndex === -1) {
-        throw new Error("Current quiz not found in session");
-      }
-
-      const nextIndex = currentIndex + 1;
-      if (nextIndex >= selectedQuizIds.length) {
-        return null;
-      }
-
-      const nextQuizId = selectedQuizIds[nextIndex];
-      const nextQuiz = await tx.quiz.findUnique({
-        where: { id: nextQuizId },
-        include: { category: true, answers: true },
-      });
-
-      if (!nextQuiz) {
-        throw new Error("Failed to fetch next quiz");
-      }
-
-      const previousQuizId =
-        currentIndex > 0 ? selectedQuizIds[currentIndex - 1] : null;
-      const followingQuizId =
-        nextIndex + 1 < selectedQuizIds.length
-          ? selectedQuizIds[nextIndex + 1]
-          : null;
-
-      const currentQuizWithDetails = {
-        ...nextQuiz,
-        currentQuizIndex: nextIndex,
-        previousQuizId,
-        nextQuizId: followingQuizId,
-      };
-
-      return {
-        currentQuiz: currentQuizWithDetails,
-      };
-    });
+  // Update the encryption method
+  private encryptStartTime(startTime: Date): string {
+    const iv = crypto.randomBytes(this.ivLength);
+    const cipher = crypto.createCipheriv("aes-256-cbc", this.encryptionKey, iv);
+    let encrypted = cipher.update(startTime.toISOString(), "utf8", "hex");
+    encrypted += cipher.final("hex");
+    return iv.toString("hex") + ":" + encrypted;
   }
 
-  private buildWhereClause(where: any) {
-    const conditions = [];
-    if (where.difficulty)
-      conditions.push(`"difficulty" = '${where.difficulty}'`);
-    if (where.categoryId) conditions.push(`"categoryId" = ${where.categoryId}`);
-    return conditions.length > 0 ? conditions.join(" AND ") : "1=1";
+  // Update the decryption method
+  private decryptStartTime(encrypted: string): Date {
+    const [ivHex, encryptedText] = encrypted.split(":");
+    const iv = Buffer.from(ivHex, "hex");
+    const decipher = crypto.createDecipheriv(
+      "aes-256-cbc",
+      this.encryptionKey,
+      iv
+    );
+    let decrypted = decipher.update(encryptedText, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return new Date(decrypted);
   }
+
   /**
    * Get filtered quizzes with pagination for admin
    */
@@ -226,7 +214,7 @@ export class QuizService {
         createdBy,
       } = filters;
 
-      const where = {
+      const where: Prisma.QuizWhereInput = {
         ...(difficulty && { difficulty }),
         ...(categoryId && { categoryId }),
         ...(createdBy && { createdBy }),
@@ -235,13 +223,13 @@ export class QuizService {
             {
               question: {
                 contains: search,
-                mode: "insensitive" as const,
+                mode: "insensitive",
               },
             },
             {
               description: {
                 contains: search,
-                mode: "insensitive" as const,
+                mode: "insensitive",
               },
             },
           ],
@@ -280,7 +268,7 @@ export class QuizService {
     } catch (error) {
       console.error("[Quiz Service] Get admin quizzes error:", error);
       return {
-        data: [],
+        data: [] as Quiz[],
         meta: { total: 0, page: 1, limit: 10, totalPages: 0 },
       };
     }
@@ -365,76 +353,111 @@ export class QuizService {
     userId: number,
     sessionId: number,
     quizId: number,
-    answerId: number
-  ): Promise<QuizAnswerResponse | null> {
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        const session = await tx.quizSession.findFirst({
-          where: {
-            id: sessionId,
-            userId,
-            status: "IN_PROGRESS",
+    answerId: number | null,
+    encryptedStartTime: string
+  ): Promise<SubmitQuizAnswerResponse> {
+    return this.prisma.$transaction(async (tx) => {
+      const [session, quiz] = await Promise.all([
+        tx.quizSession.findFirstOrThrow({
+          where: { id: sessionId, userId, status: "IN_PROGRESS" },
+          select: { selectedQuizIds: true },
+        }),
+        tx.quiz.findUniqueOrThrow({
+          where: { id: quizId },
+          select: {
+            id: true,
+            question: true,
+            timeLimit: true,
+            maxPrize: true,
+            difficulty: true,
+            answers: {
+              select: { id: true, label: true, text: true, isCorrect: true },
+            },
           },
-        });
+        }),
+      ]);
 
-        if (!session) return null;
+      const quizIds = (session.selectedQuizIds as number[]) || [];
+      const currentIndex = quizIds.indexOf(quizId);
+      if (currentIndex === -1) throw new Error("Quiz not found in session");
 
-        const selectedQuizIds = JSON.parse(session.selectedQuizIds as string);
-        if (!selectedQuizIds.includes(quizId)) return null;
+      const timeTaken = Math.floor(
+        (Date.now() - this.decryptStartTime(encryptedStartTime).getTime()) /
+          1000
+      );
+      if (quiz.timeLimit && timeTaken > quiz.timeLimit)
+        throw new Error("Time limit exceeded");
 
-        const [quiz, existingAnswer] = await Promise.all([
-          tx.quiz.findUnique({
-            where: { id: quizId },
-            include: { answers: true },
-          }),
-          tx.userQuestionAnswer.findFirst({
-            where: { userId, quizId },
-          }),
-        ]);
+      const selectedAnswer = answerId
+        ? quiz.answers.find((a) => a.id === answerId) || quiz.answers[0]
+        : quiz.answers.find((a) => !a.isCorrect) || quiz.answers[0];
 
-        if (!quiz || existingAnswer) return null;
+      const metrics: MetricsData = {
+        isCorrect: selectedAnswer.isCorrect,
+        timeTaken,
+        coinsEarned: selectedAnswer.isCorrect ? quiz.maxPrize : 0,
+      };
 
-        const selectedAnswer = quiz.answers.find((a) => a.id === answerId);
-        if (!selectedAnswer) return null;
-
-        const userAnswer = await tx.userQuestionAnswer.create({
+      const [userAnswer] = await Promise.all([
+        tx.userQuestionAnswer.create({
           data: {
             userId,
             quizId,
-            selectedAnswerId: answerId,
+            selectedAnswerId: selectedAnswer.id,
             sessionId,
           },
-        });
+          select: { id: true },
+        }),
+        tx.quizSession.update({
+          where: { id: sessionId },
+          data: { answeredCount: { increment: 1 } },
+        }),
+      ]);
 
-        const metrics: MetricsData = {
-          isCorrect: selectedAnswer.isCorrect,
-          timeTaken: 0, // Will be calculated from client
-          coinsEarned: selectedAnswer.isCorrect ? quiz.maxPrize : 0,
-        };
+      await tx.questionAttemptMetrics.create({
+        data: { userAnswerId: userAnswer.id, ...metrics },
+      });
 
-        await Promise.all([
-          tx.questionAttemptMetrics.create({
-            data: {
-              userAnswerId: userAnswer.id,
-              ...metrics,
-            },
-          }),
-          tx.quizSession.update({
-            where: { id: sessionId },
-            data: { answeredCount: { increment: 1 } },
-          }),
-        ]);
+      const nextQuizId =
+        currentIndex + 1 < quizIds.length ? quizIds[currentIndex + 1] : null;
+      const nextQuiz = nextQuizId
+        ? await tx.quiz
+            .findUnique({
+              where: { id: nextQuizId },
+              select: {
+                id: true,
+                question: true,
+                description: true,
+                timeLimit: true,
+                maxPrize: true,
+                difficulty: true,
+                categoryId: true,
+                answers: { select: { id: true, label: true, text: true } },
+              },
+            })
+            .then(
+              (q): ClientQuiz | null =>
+                q && {
+                  ...q,
+                  answers: q.answers.map((a) => ({
+                    ...a,
+                    label: a.label as "A" | "B" | "C" | "D",
+                  })),
+                  currentQuizIndex: currentIndex + 1,
+                  startTime: this.encryptStartTime(new Date()),
+                }
+            )
+        : null;
 
-        return {
+      return {
+        answerResponse: {
           correct: selectedAnswer.isCorrect,
           earnedCoins: metrics.coinsEarned,
-          timeTaken: metrics.timeTaken,
-        };
-      });
-    } catch (error) {
-      console.error("[Quiz Service] Submit answer error:", error);
-      return null;
-    }
+          timeTaken,
+        },
+        nextQuiz,
+      };
+    });
   }
 
   async createQuizResult(

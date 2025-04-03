@@ -16,24 +16,17 @@ class QuizRoute {
   private initializeRoutes(): void {
     // Public routes (no auth required)
     this.router.get(
-      "/:id",
+      "/quiz/:id",
       routeHandler(this.quizController.getQuizById.bind(this.quizController))
     );
 
     // User routes (auth required)
     this.router.get(
-      "/",
+      "/start",
       routeHandler(authMiddleware),
       routeHandler(
         this.quizController.startQuizSession.bind(this.quizController)
       )
-    );
-
-    // User routes (auth required)
-    this.router.get(
-      "/next",
-      routeHandler(authMiddleware),
-      routeHandler(this.quizController.getNextQuiz.bind(this.quizController))
     );
 
     this.router.post(

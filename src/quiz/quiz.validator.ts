@@ -7,8 +7,11 @@ export const validateCreateQuiz = (data: CreateQuizDto): string | null => {
   if (!data.answers?.length || data.answers.length < 2) {
     return "At least 2 answers are required";
   }
-  if (!data.answers.some(answer => answer.isCorrect)) {
+  if (!data.answers.some((answer) => answer.isCorrect)) {
     return "At least one correct answer is required";
+  }
+  if (!data.timeLimit) {
+    return "Time limit is required";
   }
   if (!data.categoryId) {
     return "Category is required";
@@ -24,7 +27,7 @@ export const validateUpdateQuiz = (data: UpdateQuizDto): string | null => {
     if (data.answers.length < 2) {
       return "At least 2 answers are required";
     }
-    if (!data.answers.some(answer => answer.isCorrect)) {
+    if (!data.answers.some((answer) => answer.isCorrect)) {
       return "At least one correct answer is required";
     }
   }

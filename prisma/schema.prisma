@@ -274,7 +274,7 @@ model QuizSession {
   id              Int       @id @default(autoincrement())
   userId          Int
   resultId        Int?      @unique // Add @unique here
-  selectedQuizIds Json // প্রশ্নের আইডিগুলোর অ্যারে, যেমন [1, 2, 3]
+  selectedQuizIds Json  @default("[]")// প্রশ্নের আইডিগুলোর অ্যারে, যেমন [1, 2, 3]
   startedAt       DateTime  @default(now())
   completedAt     DateTime? // শেষ না হলে null
   status          String    @default("IN_PROGRESS")

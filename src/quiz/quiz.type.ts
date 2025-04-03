@@ -7,11 +7,7 @@ export interface CreateQuizDto {
   description?: string;
   difficulty: Difficulty;
   categoryId: number;
-  answers: {
-    label: "A" | "B" | "C" | "D";
-    text: string;
-    isCorrect: boolean;
-  }[];
+  answers: { label: "A" | "B" | "C" | "D"; text: string; isCorrect: boolean }[];
 }
 
 export interface UpdateQuizDto extends Partial<CreateQuizDto> {}
@@ -28,13 +24,23 @@ export interface AdminQuizFilterDto extends QuizFilterDto {
   createdBy?: number;
 }
 
+export interface ClientQuiz
+  extends Omit<
+    Pick<
+      Quiz,
+      "id" | "question" | "timeLimit" | "maxPrize" | "difficulty" | "categoryId"
+    >,
+    "answers"
+  > {
+  answers: { id: number; label: "A" | "B" | "C" | "D"; text: string }[];
+  currentQuizIndex: number;
+  startTime: string;
+}
+
 export interface QuizSessionResponse {
-  data: Quiz[];
-  meta: {
-    total: number;
-    limit: number;
-    sessionId: number;
-  };
+  sessionId: number;
+  currentQuiz: ClientQuiz;
+  totalQuizzes: number;
 }
 
 export interface QuizAnswerResponse {
@@ -47,4 +53,9 @@ export interface MetricsData {
   isCorrect: boolean;
   timeTaken: number;
   coinsEarned: number;
+}
+
+export interface SubmitQuizAnswerResponse {
+  answerResponse: QuizAnswerResponse;
+  nextQuiz: ClientQuiz | null;
 }

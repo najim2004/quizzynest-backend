@@ -107,32 +107,6 @@ export class QuizController {
   };
 
   /**
-   * Get next quiz for users
-   */
-
-  getNextQuiz = async (req: Request, res: Response) => {
-    try {
-      if (!req.user) {
-        return ApiResponse.unauthorized(res, "Unauthorized Detected");
-      }
-      const userId = parseInt(req.user.sub);
-      const { sessionId, currentQuizId } = req.query;
-      const result = await this.quizService.getNextQuiz(
-        userId,
-        parseInt(sessionId as string),
-        parseInt(currentQuizId as string)
-      );
-      return ApiResponse.success(res, result);
-    } catch (error) {
-      return ApiResponse.error(
-        res,
-        error instanceof Error ? error.message : "Internal Server Error",
-        500
-      );
-    }
-  };
-
-  /**
    * Get filtered quizzes for admin
    */
   getQuizzesForAdmin = async (req: Request, res: Response) => {
@@ -230,7 +204,7 @@ export class QuizController {
         return ApiResponse.notFound(res, "Quiz not found or unauthorized");
       }
 
-      return ApiResponse.success(res, { message: "Quiz deleted successfully" });
+      return ApiResponse.success(res, null, "Quiz deleted successfully");
     } catch (error) {
       console.error("[Quiz Controller] Delete quiz error:", error);
       return ApiResponse.error(
@@ -250,8 +224,8 @@ export class QuizController {
         return ApiResponse.unauthorized(res, "Unauthorized access");
       }
 
-      const { quizId, answerId, sessionId } = req?.body;
-      if (!quizId || !answerId || !sessionId) {
+      const { quizId, answerId, sessionId, encryptedStartTime } = req?.body;
+      if (!quizId || !answerId || !sessionId || !encryptedStartTime) {
         return ApiResponse.badRequest(
           res,
           "Quiz ID and answer ID are required"
@@ -262,7 +236,8 @@ export class QuizController {
         parseInt(req.user.sub),
         parseInt(quizId),
         parseInt(answerId),
-        parseInt(sessionId)
+        parseInt(sessionId),
+        encryptedStartTime
       );
 
       if (!result) {
