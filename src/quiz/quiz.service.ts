@@ -357,6 +357,12 @@ export class QuizService {
     encryptedStartTime: string
   ): Promise<SubmitQuizAnswerResponse> {
     return this.prisma.$transaction(async (tx) => {
+      // প্রথমেই timeTaken হিসাব এবং চেক
+      const timeTaken = Math.floor(
+        (Date.now() - this.decryptStartTime(encryptedStartTime).getTime()) /
+          1000
+      );
+
       const [session, quiz] = await Promise.all([
         tx.quizSession.findFirstOrThrow({
           where: { id: sessionId, userId, status: "IN_PROGRESS" },
@@ -381,15 +387,13 @@ export class QuizService {
       const currentIndex = quizIds.indexOf(quizId);
       if (currentIndex === -1) throw new Error("Quiz not found in session");
 
-      const timeTaken = Math.floor(
-        (Date.now() - this.decryptStartTime(encryptedStartTime).getTime()) /
-          1000
-      );
-      if (quiz.timeLimit && timeTaken > quiz.timeLimit)
-        throw new Error("Time limit exceeded");
+      // টাইম লিমিট অতিক্রম করলে answerId কে null করে ভুল উত্তর সিলেক্ট
+      const effectiveAnswerId =
+        quiz.timeLimit && timeTaken > quiz.timeLimit ? null : answerId;
 
-      const selectedAnswer = answerId
-        ? quiz.answers.find((a) => a.id === answerId) || quiz.answers[0]
+      const selectedAnswer = effectiveAnswerId
+        ? quiz.answers.find((a) => a.id === effectiveAnswerId) ||
+          quiz.answers[0]
         : quiz.answers.find((a) => !a.isCorrect) || quiz.answers[0];
 
       const metrics: MetricsData = {
