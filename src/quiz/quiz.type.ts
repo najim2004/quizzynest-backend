@@ -28,7 +28,13 @@ export interface ClientQuiz
   extends Omit<
     Pick<
       Quiz,
-      "id" | "question" | "timeLimit" | "maxPrize" | "difficulty" | "categoryId"
+      | "id"
+      | "question"
+      | "timeLimit"
+      | "maxPrize"
+      | "difficulty"
+      | "categoryId"
+      | "description"
     >,
     "answers"
   > {
@@ -49,13 +55,24 @@ export interface QuizAnswerResponse {
   timeTaken: number;
 }
 
+export interface SubmitQuizAnswerResponse {
+  answerResponse: QuizAnswerResponse;
+  nextQuiz: ClientQuiz | null;
+  result?: QuizResult;
+}
+
+export interface QuizResult {
+  id: number;
+  userId: number;
+  totalQuestions: number;
+  correctAnswers: number;
+  totalTimeSpent: number;
+  totalCoinsEarned: number;
+  accuracy: number;
+  completedAt: string;
+}
 export interface MetricsData {
   isCorrect: boolean;
   timeTaken: number;
   coinsEarned: number;
-}
-
-export interface SubmitQuizAnswerResponse {
-  answerResponse: QuizAnswerResponse;
-  nextQuiz: ClientQuiz | null;
 }

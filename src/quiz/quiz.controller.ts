@@ -257,38 +257,4 @@ export class QuizController {
       );
     }
   };
-
-  /**
-   * Create quiz result
-   */
-  createQuizResult = async (req: Request, res: Response) => {
-    try {
-      if (!req.user)
-        return ApiResponse.unauthorized(res, "Unauthorized access");
-      const { sessionId } = req?.body;
-      if (!sessionId)
-        return ApiResponse.badRequest(res, "Session ID is required");
-
-      const result = await this.quizService.createQuizResult(
-        parseInt(req.user.sub),
-        parseInt(sessionId)
-      );
-
-      if (!result) {
-        return ApiResponse.badRequest(
-          res,
-          "Invalid submission or already answered"
-        );
-      }
-
-      return ApiResponse.success(res, result);
-    } catch (error) {
-      console.error("[Quiz Controller] Submit answer error:", error);
-      return ApiResponse.error(
-        res,
-        error instanceof Error ? error.message : "Internal Server Error",
-        500
-      );
-    }
-  };
 }

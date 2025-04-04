@@ -1,354 +1,249 @@
-import {
-  PrismaClient,
-  Quiz,
-  QuizResult,
-  Difficulty,
-  Prisma,
-  QuizSession,
-  UserQuestionAnswer,
-} from "@prisma/client"; // Add Prisma import
+import { PrismaClient, Quiz, Prisma } from "@prisma/client";
 import * as crypto from "crypto";
 import {
   CreateQuizDto,
   UpdateQuizDto,
   QuizFilterDto,
   AdminQuizFilterDto,
-  QuizAnswerResponse,
-  MetricsData,
   ClientQuiz,
   QuizSessionResponse,
   SubmitQuizAnswerResponse,
+  QuizResult as QuizResultType,
 } from "./quiz.type";
 
 export class QuizService {
-  private prisma: PrismaClient;
-  private encryptionKey: Buffer;
-  private readonly ivLength: number = 16;
+  private prisma = new PrismaClient({ log: ["error", "warn"] });
+  private encryptionKey = crypto
+    .createHash("sha256")
+    .update(process.env.ENCRYPTION_KEY || "mysecretkey12345678901234567890")
+    .digest();
+  private ivLength = 16;
 
-  constructor() {
-    this.prisma = new PrismaClient();
-    // Create a 32-byte key using SHA-256 hash of the original key
-    const rawKey =
-      process.env.ENCRYPTION_KEY || "mysecretkey12345678901234567890";
-    this.encryptionKey = crypto.createHash("sha256").update(rawKey).digest();
+  private encryptStartTime(startTime: Date): string {
+    const iv = crypto.randomBytes(this.ivLength);
+    const cipher = crypto.createCipheriv("aes-256-cbc", this.encryptionKey, iv);
+    return `${iv.toString("hex")}:${Buffer.concat([
+      cipher.update(startTime.toISOString()),
+      cipher.final(),
+    ]).toString("hex")}`;
   }
 
-  /**
-   * Create a new quiz with answers
-   */
-  async createQuiz(
-    userId: number,
-    createQuizDto: CreateQuizDto
-  ): Promise<Quiz> {
-    const { answers, categoryId, ...quizData } = createQuizDto;
-
-    // Validate category exists
-    const category = await this.prisma.category.findUnique({
-      where: { id: categoryId },
-    });
-
-    if (!category) {
-      throw new Error("Category not found");
-    }
-
-    // Validate at least one correct answer
-    const hasCorrectAnswer = answers.some((answer) => answer.isCorrect);
-    if (!hasCorrectAnswer) {
-      throw new Error("Quiz must have at least one correct answer");
-    }
-
-    // Create quiz with answers in a transaction
-    return this.prisma.$transaction(async (tx) => {
-      const quiz = await tx.quiz.create({
-        data: {
-          ...quizData,
-          categoryId,
-          createdBy: userId,
-          answers: {
-            create: answers,
-          },
-        },
-        include: {
-          answers: true,
-          category: true,
-        },
-      });
-      return quiz;
-    });
+  private decryptStartTime(encrypted: string): Date {
+    const [ivHex, text] = encrypted.split(":");
+    const decipher = crypto.createDecipheriv(
+      "aes-256-cbc",
+      this.encryptionKey,
+      Buffer.from(ivHex, "hex")
+    );
+    return new Date(
+      Buffer.concat([
+        decipher.update(Buffer.from(text, "hex")),
+        decipher.final(),
+      ]).toString()
+    );
   }
 
-  /**
-   * Get quiz by ID with answers
-   */
-  async getQuizById(id: number): Promise<Quiz> {
-    const quiz = await this.prisma.quiz.findUnique({
+  private async fetchQuiz(
+    tx: Prisma.TransactionClient,
+    id: number,
+    withAnswers = true
+  ): Promise<Quiz & { answers: any[] }> {
+    return tx.quiz.findUniqueOrThrow({
       where: { id },
-      include: {
-        answers: true,
-        category: true,
+      include: { answers: withAnswers },
+    });
+  }
+
+  private async prepareNextQuiz(
+    tx: Prisma.TransactionClient,
+    quizIds: number[],
+    currentIndex: number
+  ): Promise<ClientQuiz | null> {
+    const nextQuizId =
+      currentIndex + 1 < quizIds.length ? quizIds[currentIndex + 1] : null;
+    if (!nextQuizId) return null;
+
+    const quiz = await tx.quiz.findUnique({
+      where: { id: nextQuizId },
+      select: {
+        id: true,
+        question: true,
+        description: true,
+        timeLimit: true,
+        maxPrize: true,
+        difficulty: true,
+        categoryId: true,
+        answers: { select: { id: true, label: true, text: true } },
       },
     });
 
-    if (!quiz) {
-      throw new Error("Quiz not found");
-    }
+    return quiz
+      ? {
+          ...quiz,
+          answers: quiz.answers.map((a) => ({
+            ...a,
+            label: a.label as "A" | "B" | "C" | "D",
+          })),
+          currentQuizIndex: currentIndex + 1,
+          startTime: this.encryptStartTime(new Date()),
+        }
+      : null;
+  }
 
-    return quiz;
+  async createQuiz(userId: number, dto: CreateQuizDto): Promise<Quiz> {
+    if (!dto.answers.some((a) => a.isCorrect))
+      throw new Error("At least one correct answer required");
+
+    return this.prisma.$transaction(async (tx) => {
+      if (
+        !(await tx.category.findUnique({
+          where: { id: dto.categoryId },
+          select: { id: true },
+        }))
+      )
+        throw new Error("Category not found");
+      return tx.quiz.create({
+        data: {
+          ...dto,
+          categoryId: dto.categoryId,
+          createdBy: userId,
+          answers: { create: dto.answers },
+        },
+        include: { answers: true },
+      });
+    });
+  }
+
+  async getQuizById(id: number): Promise<Quiz> {
+    return this.fetchQuiz(this.prisma, id);
   }
 
   async startQuizSession(
     userId: number,
     filters: QuizFilterDto
   ): Promise<QuizSessionResponse> {
-    return this.prisma.$transaction(async (tx) => {
-      const { limit = 10, difficulty, categoryId } = filters;
+    const { limit = 10, difficulty, categoryId } = filters;
+    const where = {
+      ...(difficulty && { difficulty }),
+      ...(categoryId && { categoryId }),
+    };
+    const quizIds = (
+      await this.prisma.quiz.findMany({
+        where,
+        select: { id: true },
+        take: limit,
+        orderBy: { id: "asc" },
+      })
+    ).map((q) => q.id);
 
-      // Build conditions array
-      const conditions: Prisma.Sql[] = [];
-      if (difficulty) {
-        conditions.push(Prisma.sql`difficulty = ${difficulty}`);
-      }
-      if (categoryId) {
-        conditions.push(Prisma.sql`"categoryId" = ${categoryId}`);
-      }
+    if (!quizIds.length) throw new Error("No quizzes available");
 
-      // Construct the WHERE clause
-      const whereClause =
-        conditions.length > 0
-          ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`
-          : Prisma.sql`WHERE TRUE`;
-
-      const selectedQuizIds = await tx.$queryRaw<{ id: number }[]>`
-        SELECT id
-        FROM "quizzes"
-        ${whereClause}
-        ORDER BY RANDOM()
-        LIMIT ${limit}
-      `;
-
-      if (selectedQuizIds.length === 0) {
-        throw new Error("No quizzes available after random selection");
-      }
-
-      const quizIds = selectedQuizIds.map((q) => q.id);
-
-      const session = await tx.quizSession.create({
+    const startTime = new Date();
+    const [session, firstQuiz] = await Promise.all([
+      this.prisma.quizSession.create({
         data: {
           userId,
           status: "IN_PROGRESS",
-          startedAt: new Date(),
+          startedAt: startTime,
           selectedQuizIds: JSON.stringify(quizIds),
           totalQuestions: quizIds.length,
         },
-      });
+      }),
+      this.fetchQuiz(this.prisma, quizIds[0]),
+    ]);
 
-      const firstQuizId = quizIds[0];
-      const firstQuiz = await tx.quiz.findUnique({
-        where: { id: firstQuizId },
-        include: { answers: true },
-      });
-
-      if (!firstQuiz) {
-        throw new Error("Failed to fetch first quiz");
-      }
-      const startTime = new Date();
-      const encryptedStartTime = this.encryptStartTime(startTime);
-
-      // Update the answer filtering to preserve the label type
-      const filteredAnswers = firstQuiz.answers.map(
-        ({ isCorrect, ...rest }) => ({
-          ...rest,
-          label: rest.label as "A" | "B" | "C" | "D", // Ensure correct label type
-        })
-      );
-
-      const currentQuizWithDetails: ClientQuiz = {
+    return {
+      sessionId: session.id,
+      currentQuiz: {
         ...firstQuiz,
-        answers: filteredAnswers,
+        answers: firstQuiz.answers.map((a) => ({
+          id: a.id,
+          label: a.label as "A" | "B" | "C" | "D",
+          text: a.text,
+        })),
         currentQuizIndex: 0,
-        startTime: encryptedStartTime,
-      };
-
-      return {
-        sessionId: session.id,
-        currentQuiz: currentQuizWithDetails,
-        totalQuizzes: quizIds.length,
-      };
-    });
+        startTime: this.encryptStartTime(startTime),
+      },
+      totalQuizzes: quizIds.length,
+    };
   }
 
-  // Update the encryption method
-  private encryptStartTime(startTime: Date): string {
-    const iv = crypto.randomBytes(this.ivLength);
-    const cipher = crypto.createCipheriv("aes-256-cbc", this.encryptionKey, iv);
-    let encrypted = cipher.update(startTime.toISOString(), "utf8", "hex");
-    encrypted += cipher.final("hex");
-    return iv.toString("hex") + ":" + encrypted;
-  }
-
-  // Update the decryption method
-  private decryptStartTime(encrypted: string): Date {
-    const [ivHex, encryptedText] = encrypted.split(":");
-    const iv = Buffer.from(ivHex, "hex");
-    const decipher = crypto.createDecipheriv(
-      "aes-256-cbc",
-      this.encryptionKey,
-      iv
-    );
-    let decrypted = decipher.update(encryptedText, "hex", "utf8");
-    decrypted += decipher.final("utf8");
-    return new Date(decrypted);
-  }
-
-  /**
-   * Get filtered quizzes with pagination for admin
-   */
   async getQuizzesForAdmin(filters: AdminQuizFilterDto) {
-    try {
-      const {
-        page = 1,
-        limit = 10,
-        difficulty,
-        categoryId,
-        search,
-        createdBy,
-      } = filters;
+    const {
+      page = 1,
+      limit = 10,
+      difficulty,
+      categoryId,
+      search,
+      createdBy,
+    } = filters;
+    const where: Prisma.QuizWhereInput = {
+      ...(difficulty && { difficulty }),
+      ...(categoryId && { categoryId }),
+      ...(createdBy && { createdBy }),
+      ...(search && {
+        OR: [
+          { question: { contains: search, mode: "insensitive" } },
+          { description: { contains: search, mode: "insensitive" } },
+        ],
+      }),
+    };
 
-      const where: Prisma.QuizWhereInput = {
-        ...(difficulty && { difficulty }),
-        ...(categoryId && { categoryId }),
-        ...(createdBy && { createdBy }),
-        ...(search && {
-          OR: [
-            {
-              question: {
-                contains: search,
-                mode: "insensitive",
-              },
-            },
-            {
-              description: {
-                contains: search,
-                mode: "insensitive",
-              },
-            },
-          ],
-        }),
-      };
-
-      const [quizzes, total] = await Promise.all([
-        this.prisma.quiz.findMany({
-          where,
-          include: {
-            category: true,
-            answers: true,
-            creator: {
-              select: {
-                id: true,
-                fullName: true,
-              },
-            },
-          },
-          skip: (page - 1) * limit,
-          take: limit,
-          orderBy: { createdAt: "desc" },
-        }),
-        this.prisma.quiz.count({ where }),
-      ]);
-
-      return {
-        data: quizzes,
-        meta: {
-          total,
-          page,
-          limit,
-          totalPages: Math.ceil(total / limit),
+    const [quizzes, total] = await Promise.all([
+      this.prisma.quiz.findMany({
+        where,
+        include: {
+          answers: true,
+          creator: { select: { id: true, fullName: true } },
         },
-      };
-    } catch (error) {
-      console.error("[Quiz Service] Get admin quizzes error:", error);
-      return {
-        data: [] as Quiz[],
-        meta: { total: 0, page: 1, limit: 10, totalPages: 0 },
-      };
-    }
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      this.prisma.quiz.count({ where }),
+    ]);
+
+    return {
+      data: quizzes,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
   }
 
-  /**
-   * Update quiz and its answers
-   */
   async updateQuiz(
     id: number,
     userId: number,
-    updateQuizDto: UpdateQuizDto
+    dto: UpdateQuizDto
   ): Promise<Quiz> {
-    const quiz = await this.prisma.quiz.findUnique({
-      where: { id },
-      include: { answers: true },
-    });
-
-    if (!quiz) {
-      throw new Error("Quiz not found");
-    }
-
-    if (quiz.createdBy !== userId) {
-      throw new Error("Not authorized to update this quiz");
-    }
-
-    const { answers, ...quizData } = updateQuizDto;
+    if (
+      !(await this.prisma.quiz.findFirst({
+        where: { id, createdBy: userId },
+        select: { id: true },
+      }))
+    )
+      throw new Error("Quiz not found or unauthorized");
 
     return this.prisma.$transaction(async (tx) => {
-      // Delete existing answers if new answers provided
-      if (answers) {
-        await tx.answer.deleteMany({
-          where: { quizId: id },
-        });
+      const { answers, ...rest } = dto;
+      const data: Prisma.QuizUpdateInput = { ...rest };
+      if (answers?.length) {
+        await tx.answer.deleteMany({ where: { quizId: id } });
+        data.answers = { createMany: { data: answers } };
       }
-
       return tx.quiz.update({
         where: { id },
-        data: {
-          ...quizData,
-          ...(answers && {
-            answers: {
-              create: answers,
-            },
-          }),
-        },
-        include: {
-          answers: true,
-          category: true,
-        },
+        data,
+        include: { answers: true,},
       });
     });
   }
 
-  /**
-   * Delete quiz and associated answers
-   */
   async deleteQuiz(id: number, userId: number): Promise<boolean> {
-    const quiz = await this.prisma.quiz.findUnique({
-      where: { id },
-    });
-
-    if (!quiz) {
-      throw new Error("Quiz not found");
-    }
-
-    if (quiz.createdBy !== userId) {
-      throw new Error("Not authorized to delete this quiz");
-    }
-
-    const answers = await this.prisma.quiz.delete({
-      where: { id },
-    });
-
-    return !!answers;
+    return (
+      (await this.prisma.quiz.deleteMany({ where: { id, createdBy: userId } }))
+        .count > 0
+    );
   }
 
-  /**
-   * Submit quiz answer and calculate results
-   */
   async submitQuizAnswer(
     userId: number,
     sessionId: number,
@@ -357,60 +252,46 @@ export class QuizService {
     encryptedStartTime: string
   ): Promise<SubmitQuizAnswerResponse> {
     return this.prisma.$transaction(async (tx) => {
-      // প্রথমেই timeTaken হিসাব এবং চেক
       const timeTaken = Math.floor(
         (Date.now() - this.decryptStartTime(encryptedStartTime).getTime()) /
           1000
       );
-
       const [session, quiz] = await Promise.all([
         tx.quizSession.findFirstOrThrow({
           where: { id: sessionId, userId, status: "IN_PROGRESS" },
-          select: { selectedQuizIds: true },
-        }),
-        tx.quiz.findUniqueOrThrow({
-          where: { id: quizId },
           select: {
-            id: true,
-            question: true,
-            timeLimit: true,
-            maxPrize: true,
-            difficulty: true,
-            answers: {
-              select: { id: true, label: true, text: true, isCorrect: true },
-            },
+            selectedQuizIds: true,
+            totalQuestions: true,
+            answeredCount: true,
           },
         }),
+        this.fetchQuiz(tx, quizId),
       ]);
 
-      const quizIds = (session.selectedQuizIds as number[]) || [];
+      const quizIds = JSON.parse(session.selectedQuizIds as string) as number[];
       const currentIndex = quizIds.indexOf(quizId);
       if (currentIndex === -1) throw new Error("Quiz not found in session");
 
-      // টাইম লিমিট অতিক্রম করলে answerId কে null করে ভুল উত্তর সিলেক্ট
       const effectiveAnswerId =
         quiz.timeLimit && timeTaken > quiz.timeLimit ? null : answerId;
-
-      const selectedAnswer = effectiveAnswerId
+      const finalAnswer = effectiveAnswerId
         ? quiz.answers.find((a) => a.id === effectiveAnswerId) ||
+          quiz.answers.find((a) => !a.isCorrect) ||
           quiz.answers[0]
         : quiz.answers.find((a) => !a.isCorrect) || quiz.answers[0];
-
-      const metrics: MetricsData = {
-        isCorrect: selectedAnswer.isCorrect,
+      const metrics = {
+        isCorrect: finalAnswer.isCorrect,
         timeTaken,
-        coinsEarned: selectedAnswer.isCorrect ? quiz.maxPrize : 0,
+        coinsEarned: finalAnswer.isCorrect ? quiz.maxPrize : 0,
       };
 
-      const [userAnswer] = await Promise.all([
-        tx.userQuestionAnswer.create({
-          data: {
-            userId,
-            quizId,
-            selectedAnswerId: selectedAnswer.id,
-            sessionId,
-          },
-          select: { id: true },
+      const userAnswer = await tx.userQuestionAnswer.create({
+        data: { userId, quizId, selectedAnswerId: finalAnswer.id, sessionId },
+        select: { id: true },
+      });
+      await Promise.all([
+        tx.questionAttemptMetrics.create({
+          data: { userAnswerId: userAnswer.id, ...metrics },
         }),
         tx.quizSession.update({
           where: { id: sessionId },
@@ -418,127 +299,55 @@ export class QuizService {
         }),
       ]);
 
-      await tx.questionAttemptMetrics.create({
-        data: { userAnswerId: userAnswer.id, ...metrics },
-      });
-
-      const nextQuizId =
-        currentIndex + 1 < quizIds.length ? quizIds[currentIndex + 1] : null;
-      const nextQuiz = nextQuizId
-        ? await tx.quiz
-            .findUnique({
-              where: { id: nextQuizId },
-              select: {
-                id: true,
-                question: true,
-                description: true,
-                timeLimit: true,
-                maxPrize: true,
-                difficulty: true,
-                categoryId: true,
-                answers: { select: { id: true, label: true, text: true } },
-              },
-            })
-            .then(
-              (q): ClientQuiz | null =>
-                q && {
-                  ...q,
-                  answers: q.answers.map((a) => ({
-                    ...a,
-                    label: a.label as "A" | "B" | "C" | "D",
-                  })),
-                  currentQuizIndex: currentIndex + 1,
-                  startTime: this.encryptStartTime(new Date()),
-                }
-            )
-        : null;
-
-      return {
+      const nextQuiz = await this.prepareNextQuiz(tx, quizIds, currentIndex);
+      const response: SubmitQuizAnswerResponse = {
         answerResponse: {
-          correct: selectedAnswer.isCorrect,
+          correct: finalAnswer.isCorrect,
           earnedCoins: metrics.coinsEarned,
           timeTaken,
         },
         nextQuiz,
       };
-    });
-  }
 
-  async createQuizResult(
-    userId: number,
-    sessionId: number
-  ): Promise<QuizResult | null> {
-    try {
-      if (!userId || !sessionId) return null;
-      return await this.prisma.$transaction(async (tx) => {
-        const session = await tx.quizSession.findFirst({
-          where: {
-            id: sessionId,
-            userId,
-            status: "IN_PROGRESS",
-          },
-          include: {
-            questionAnswers: {
-              include: { metrics: true },
-            },
-          },
+      if (!nextQuiz && session.answeredCount + 1 >= session.totalQuestions) {
+        const answers = await tx.userQuestionAnswer.findMany({
+          where: { sessionId },
+          include: { metrics: true },
         });
-
-        if (!session) return null;
-
-        const { questionAnswers, totalQuestions } = session;
-        const metrics = questionAnswers.reduce(
-          (acc, answer) => ({
-            correctAnswers:
-              acc.correctAnswers + (answer.metrics?.isCorrect ? 1 : 0),
-            totalTimeSpent:
-              acc.totalTimeSpent + (answer.metrics?.timeTaken ?? 0),
+        const summary = answers.reduce(
+          (acc, a) => ({
+            correctAnswers: acc.correctAnswers + (a.metrics?.isCorrect ? 1 : 0),
+            totalTimeSpent: acc.totalTimeSpent + (a.metrics?.timeTaken || 0),
             totalCoinsEarned:
-              acc.totalCoinsEarned + (answer.metrics?.coinsEarned ?? 0),
+              acc.totalCoinsEarned + (a.metrics?.coinsEarned || 0),
           }),
           { correctAnswers: 0, totalTimeSpent: 0, totalCoinsEarned: 0 }
         );
 
-        const accuracy =
-          totalQuestions > 0
-            ? (metrics.correctAnswers / totalQuestions) * 100
-            : 0;
+        const accuracy = session.totalQuestions
+          ? (summary.correctAnswers / session.totalQuestions) * 100
+          : 0;
+        response.result = (await tx.quizResult.create({
+          data: {
+            userId,
+            ...summary,
+            accuracy,
+            totalQuestions: session.totalQuestions,
+            questionResults: { connect: answers.map((a) => ({ id: a.id })) },
+          },
+          include: {
+            questionResults: {
+              include: { quiz: true, selectedAnswer: true, metrics: true },
+            },
+          },
+        })) as unknown as QuizResultType;
+        await tx.quizSession.update({
+          where: { id: sessionId },
+          data: { status: "COMPLETED", completedAt: new Date() },
+        });
+      }
 
-        const [quizResult] = await Promise.all([
-          tx.quizResult.create({
-            data: {
-              userId,
-              ...metrics,
-              accuracy,
-              totalQuestions,
-              questionResults: {
-                connect: questionAnswers.map((qa) => ({ id: qa.id })),
-              },
-            },
-            include: {
-              questionResults: {
-                include: {
-                  quiz: true,
-                  selectedAnswer: true,
-                  metrics: true,
-                },
-              },
-            },
-          }),
-          tx.quizSession.update({
-            where: { id: sessionId },
-            data: {
-              status: "COMPLETED",
-              completedAt: new Date(),
-            },
-          }),
-        ]);
-
-        return quizResult;
-      });
-    } catch (error) {
-      console.error("[Quiz Service] Create result error:", error);
-      return null;
-    }
+      return response;
+    });
   }
 }

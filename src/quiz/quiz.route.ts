@@ -41,14 +41,6 @@ class QuizRoute {
       routeHandler(this.quizController.submitAnswer.bind(this.quizController))
     );
 
-    this.router.post(
-      "/create-quiz-result",
-      routeHandler(authMiddleware),
-      routeHandler(
-        this.quizController.createQuizResult.bind(this.quizController)
-      )
-    );
-
     this.router.put(
       "/admin/:id",
       routeHandler(authMiddleware),
