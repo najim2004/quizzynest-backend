@@ -1,4 +1,4 @@
-import { PrismaClient, User, Achievement } from "@prisma/client";
+import { PrismaClient, Achievement } from "@prisma/client";
 import { prisma } from "../config/database";
 import { QuizHistoryResult, UserStats } from "./profile.type";
 
@@ -9,116 +9,99 @@ export class ProfileService {
     this.prisma = prisma;
   }
 
-  getUserStats = async (userId: number): Promise<UserStats> => {
-    try {
-      // Get start of current month for monthly ranking
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
+  // Utility function to get start of current month
+  private getStartOfMonth(): Date {
+    const date = new Date();
+    date.setDate(1);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  }
 
-      // Fetch all required data in parallel
-      const [totalQuizResults, monthlyQuizResults] = await Promise.all([
-        // Get all quiz results for total stats
+  // Optimized user stats retrieval with monthly rank based on coins
+  async getUserStats(userId: number): Promise<UserStats> {
+    const startOfMonth = this.getStartOfMonth();
+
+    try {
+      // Single query to get all stats
+      const [stats, monthlyStats] = await Promise.all([
         this.prisma.quizResult.aggregate({
           where: { userId },
-          _count: {
-            _all: true, // For total played quizzes
-          },
-          _sum: {
-            totalCoinsEarned: true, // For total coins
-            correctAnswers: true, // For total correct answers
-          },
+          _count: { _all: true },
+          _sum: { totalCoinsEarned: true, correctAnswers: true },
+          _avg: { accuracy: true },
+          _max: { accuracy: true },
         }),
-
-        // Get monthly quiz results for ranking
-        this.prisma.quizResult.findMany({
-          where: {
-            userId,
-            completedAt: { gte: startOfMonth },
-          },
-          orderBy: {
-            accuracy: "desc",
-          },
-          take: 1,
-          select: {
-            accuracy: true,
-          },
+        this.prisma.quizResult.aggregate({
+          where: { userId, completedAt: { gte: startOfMonth } },
+          _sum: { totalCoinsEarned: true },
         }),
       ]);
 
-      // Calculate monthly rank based on accuracy
       const monthlyRank = await this.calculateMonthlyRank(
         startOfMonth,
-        monthlyQuizResults[0]?.accuracy ?? 0
+        monthlyStats._sum.totalCoinsEarned ?? 0
       );
 
-      // Calculate success rate (accuracy)
-      const allQuizResults = await this.prisma.quizResult.findMany({
-        where: { userId },
-        select: { accuracy: true },
-      });
-
-      const averageAccuracy =
-        allQuizResults.length > 0
-          ? allQuizResults.reduce((sum, result) => sum + result.accuracy, 0) /
-            allQuizResults.length
-          : 0;
-
       return {
-        totalPlayedQuizzes: totalQuizResults._count._all,
-        totalEarnedCoin: totalQuizResults._sum.totalCoinsEarned ?? 0,
-        highScore: Math.max(
-          ...allQuizResults.map((result) => result.accuracy),
-          0
-        ), // Using accuracy as score
-        totalCorrectAnswers: totalQuizResults._sum.correctAnswers ?? 0,
+        totalPlayedQuizzes: stats._count._all,
+        totalEarnedCoin: stats._sum.totalCoinsEarned ?? 0,
+        totalCorrectAnswers: stats._sum.correctAnswers ?? 0,
+        highScore: stats._max.accuracy ?? 0,
+        successRate: Number((stats._avg.accuracy ?? 0).toFixed(2)),
         rankThisMonth: monthlyRank,
-        successRate: Number(averageAccuracy.toFixed(2)),
       };
     } catch (error) {
-      console.error("[Profile] Failed to fetch user stats:", error);
-      throw new Error("Failed to fetch user statistics");
-    }
-  };
-
-  private async calculateMonthlyRank(
-    startOfMonth: Date,
-    userAccuracy: number
-  ): Promise<number> {
-    try {
-      const result = await this.prisma.$queryRaw<{ count: bigint }[]>`
-        SELECT COUNT(DISTINCT "userId")::integer as count
-        FROM "quiz_results"
-        WHERE "completedAt" >= ${startOfMonth}
-        AND "accuracy" > ${userAccuracy}
-      `;
-
-      return Number(result[0]?.count ?? 0) + 1;
-    } catch (error) {
-      console.error("[Profile] Failed to calculate monthly rank:", error);
-      return 1;
+      console.error("[ProfileService] Failed to fetch user stats:", error);
+      throw new Error("Unable to retrieve user statistics");
     }
   }
 
-  getUserAchievements = async (userId: number): Promise<Achievement[]> => {
+  // Monthly rank calculation based on totalCoinsEarned
+  private async calculateMonthlyRank(
+    startOfMonth: Date,
+    userCoins: number
+  ): Promise<number> {
     try {
-      return this.prisma.achievement.findMany({
+      const higherCoinsCount = await this.prisma.quizResult
+        .groupBy({
+          by: ["userId"],
+          where: {
+            completedAt: { gte: startOfMonth },
+          },
+          _sum: { totalCoinsEarned: true },
+          having: {
+            totalCoinsEarned: { _sum: { gt: userCoins } },
+          },
+        })
+        .then((results) => results.length);
+
+      return higherCoinsCount + 1;
+    } catch (error) {
+      console.error(
+        "[ProfileService] Failed to calculate monthly rank:",
+        error
+      );
+      return 1; // Default rank if calculation fails
+    }
+  }
+
+  // Fetch user achievements
+  async getUserAchievements(userId: number): Promise<Achievement[]> {
+    try {
+      return await this.prisma.achievement.findMany({
         where: { userId },
       });
     } catch (error) {
-      console.error("[Profile] Failed to fetch user achievements:", error);
+      console.error("[ProfileService] Failed to fetch achievements:", error);
       return [];
     }
-  };
+  }
 
-  getUserPlayedQuizzes = async (
-    userId: number
-  ): Promise<QuizHistoryResult[]> => {
+  // Optimized quiz history retrieval
+  async getUserPlayedQuizzes(userId: number): Promise<QuizHistoryResult[]> {
     try {
       const quizResults = await this.prisma.quizResult.findMany({
-        where: {
-          userId,
-        },
+        where: { userId },
         select: {
           id: true,
           totalQuestions: true,
@@ -132,9 +115,7 @@ export class ProfileService {
               quiz: {
                 select: {
                   category: {
-                    select: {
-                      name: true,
-                    },
+                    select: { name: true, id: true, color: true, icon: true },
                   },
                 },
               },
@@ -142,28 +123,22 @@ export class ProfileService {
             take: 1,
           },
         },
-        orderBy: {
-          completedAt: "desc",
-        },
+        orderBy: { completedAt: "desc" },
       });
 
-      if (!quizResults?.length) {
-        return [];
-      }
-
-      return quizResults.map((result) => {
-        const categoryName =
-          result.questionResults[0]?.quiz.category.name || "Unknown";
-        const { questionResults, ...quizResult } = result;
-
-        return {
-          categoryName,
-          ...quizResult,
-        };
-      });
+      return quizResults.map((result) => ({
+        category: result.questionResults[0]?.quiz.category || null,
+        id: result.id,
+        totalQuestions: result.totalQuestions,
+        correctAnswers: result.correctAnswers,
+        totalTimeSpent: result.totalTimeSpent,
+        totalCoinsEarned: result.totalCoinsEarned,
+        accuracy: result.accuracy,
+        completedAt: result.completedAt,
+      }));
     } catch (error) {
-      console.error("[Profile] Failed to fetch user played quizzes:", error);
-      return []; // Return empty array instead of throwing error
+      console.error("[ProfileService] Failed to fetch quiz history:", error);
+      return [];
     }
-  };
+  }
 }

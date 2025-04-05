@@ -1,15 +1,17 @@
+import { Category } from "@prisma/client";
+
 export interface UserStats {
   totalPlayedQuizzes: number;
   totalEarnedCoin: number;
-  highScore: number;
   totalCorrectAnswers: number;
-  rankThisMonth: number;
+  highScore: number;
   successRate: number;
+  rankThisMonth: number;
 }
 
 export interface QuizHistoryResult {
   id: number;
-  categoryName: string;
+  category: Pick<Category, "icon" | "name" | "color" | "id">;
   totalQuestions: number;
   correctAnswers: number;
   totalTimeSpent: number;

@@ -225,18 +225,17 @@ export class QuizController {
       }
 
       const { quizId, answerId, sessionId, encryptedStartTime } = req?.body;
-      if (!quizId || !answerId || !sessionId || !encryptedStartTime) {
-        return ApiResponse.badRequest(
-          res,
-          "Quiz ID and answer ID are required"
-        );
+      if (!quizId || !sessionId || !encryptedStartTime) {
+        return ApiResponse.badRequest(res, "Invalid submission!");
       }
-
+      const correctAnswerId: number | null = parseInt(answerId)
+        ? parseInt(answerId)
+        : null;
       const result = await this.quizService.submitQuizAnswer(
         parseInt(req.user.sub),
-        parseInt(quizId),
-        parseInt(answerId),
         parseInt(sessionId),
+        parseInt(quizId),
+        correctAnswerId,
         encryptedStartTime
       );
 

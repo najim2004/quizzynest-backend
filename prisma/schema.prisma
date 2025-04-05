@@ -175,6 +175,23 @@ model UserQuestionAnswer {
   @@map("user_question_answers")
 }
 
+// New model for question attempt metrics
+model QuestionAttemptMetrics {
+  id           Int      @id @default(autoincrement())
+  userAnswerId Int      @unique
+  timeTaken    Int // in seconds
+  coinsEarned  Int      @default(0)
+  isCorrect    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  userAnswer UserQuestionAnswer @relation(fields: [userAnswerId], references: [id], onDelete: Cascade) // কোন উত্তরের মেট্রিক্স
+
+  @@index([createdAt])
+  @@index([isCorrect])
+  @@index([userAnswerId])
+  @@map("question_attempt_metrics")
+}
+
 // 8. QuizResult
 model QuizResult {
   id               Int          @id @default(autoincrement())
@@ -252,29 +269,12 @@ model UserVoucher {
   @@map("user_vouchers")
 }
 
-// New model for question attempt metrics
-model QuestionAttemptMetrics {
-  id           Int      @id @default(autoincrement())
-  userAnswerId Int      @unique
-  timeTaken    Int // in seconds
-  coinsEarned  Int      @default(0)
-  isCorrect    Boolean  @default(false)
-  createdAt    DateTime @default(now())
-
-  userAnswer UserQuestionAnswer @relation(fields: [userAnswerId], references: [id], onDelete: Cascade) // কোন উত্তরের মেট্রিক্স
-
-  @@index([createdAt])
-  @@index([isCorrect])
-  @@index([userAnswerId])
-  @@map("question_attempt_metrics")
-}
-
 // New QuizSession model
 model QuizSession {
   id              Int       @id @default(autoincrement())
   userId          Int
   resultId        Int?      @unique // Add @unique here
-  selectedQuizIds Json  @default("[]")// প্রশ্নের আইডিগুলোর অ্যারে, যেমন [1, 2, 3]
+  selectedQuizIds Json      @default("[]") // প্রশ্নের আইডিগুলোর অ্যারে, যেমন [1, 2, 3]
   startedAt       DateTime  @default(now())
   completedAt     DateTime? // শেষ না হলে null
   status          String    @default("IN_PROGRESS")

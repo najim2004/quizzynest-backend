@@ -127,14 +127,25 @@ export class QuizService {
       ...(difficulty && { difficulty }),
       ...(categoryId && { categoryId }),
     };
-    const quizIds = (
-      await this.prisma.quiz.findMany({
-        where,
-        select: { id: true },
-        take: limit,
-        orderBy: { id: "asc" },
-      })
-    ).map((q) => q.id);
+
+    // Fetch quiz IDs randomly using raw SQL
+    const quizIdsResult = await this.prisma.$queryRaw<{ id: number }[]>`
+      SELECT id 
+      FROM "quizzes" 
+      WHERE ${
+        where.difficulty
+          ? Prisma.sql`"difficulty" = ${difficulty}`
+          : Prisma.sql`TRUE`
+      }
+      AND ${
+        where.categoryId
+          ? Prisma.sql`"categoryId" = ${categoryId}`
+          : Prisma.sql`TRUE`
+      }
+      ORDER BY RANDOM()
+      LIMIT ${limit}
+    `;
+    const quizIds = quizIdsResult.map((q) => q.id);
 
     if (!quizIds.length) throw new Error("No quizzes available");
 
@@ -168,7 +179,10 @@ export class QuizService {
     };
   }
 
-  async getQuizzesForAdmin(filters: AdminQuizFilterDto) {
+  async getQuizzesForAdmin(filters: AdminQuizFilterDto): Promise<{
+    data: Quiz[];
+    meta: { total: number; page: number; limit: number; totalPages: number };
+  }> {
     const {
       page = 1,
       limit = 10,
@@ -193,7 +207,9 @@ export class QuizService {
       this.prisma.quiz.findMany({
         where,
         include: {
-          answers: true,
+          answers: {
+            select: { id: true, label: true, text: true, isCorrect: true },
+          },
           creator: { select: { id: true, fullName: true } },
         },
         skip: (page - 1) * limit,
@@ -232,7 +248,7 @@ export class QuizService {
       return tx.quiz.update({
         where: { id },
         data,
-        include: { answers: true,},
+        include: { answers: true },
       });
     });
   }
@@ -251,6 +267,17 @@ export class QuizService {
     answerId: number | null,
     encryptedStartTime: string
   ): Promise<SubmitQuizAnswerResponse> {
+    console.log(
+      "[This console log is for debugging purposes]",
+      "sessionId",
+      sessionId,
+      "quizId",
+      quizId,
+      "answerId",
+      answerId,
+      "encryptedStartTime",
+      encryptedStartTime
+    );
     return this.prisma.$transaction(async (tx) => {
       const timeTaken = Math.floor(
         (Date.now() - this.decryptStartTime(encryptedStartTime).getTime()) /
