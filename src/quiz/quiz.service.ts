@@ -123,6 +123,7 @@ export class QuizService {
     filters: QuizFilterDto
   ): Promise<QuizSessionResponse> {
     const { limit = 10, difficulty, categoryId } = filters;
+    console.log("[This line for testing]:",difficulty);
     const where = {
       ...(difficulty && { difficulty }),
       ...(categoryId && { categoryId }),
@@ -134,7 +135,7 @@ export class QuizService {
       FROM "quizzes" 
       WHERE ${
         where.difficulty
-          ? Prisma.sql`"difficulty" = ${difficulty}`
+          ? Prisma.sql`"difficulty"::text = ${difficulty}::text`
           : Prisma.sql`TRUE`
       }
       AND ${

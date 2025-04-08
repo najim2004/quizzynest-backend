@@ -11,19 +11,17 @@ export class ProfileService {
 
   // Utility function to get start of current month
   private getStartOfMonth(): Date {
-    const date = new Date();
-    date.setDate(1);
-    date.setHours(0, 0, 0, 0);
-    return date;
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
   }
 
-  // Optimized user stats retrieval with monthly rank based on coins
+  // Fetch user stats with optimized category-based top 5 average accuracy
   async getUserStats(userId: number): Promise<UserStats> {
     const startOfMonth = this.getStartOfMonth();
 
     try {
-      // Single query to get all stats
-      const [stats, monthlyStats] = await Promise.all([
+      // Parallel queries for basic stats and monthly stats
+      const [basicStats, monthlyStats, categoryScores] = await Promise.all([
         this.prisma.quizResult.aggregate({
           where: { userId },
           _count: { _all: true },
@@ -35,6 +33,8 @@ export class ProfileService {
           where: { userId, completedAt: { gte: startOfMonth } },
           _sum: { totalCoinsEarned: true },
         }),
+        // Optimized query for top 5 category average accuracy
+        this.getTopCategoryScores(userId),
       ]);
 
       const monthlyRank = await this.calculateMonthlyRank(
@@ -43,12 +43,13 @@ export class ProfileService {
       );
 
       return {
-        totalPlayedQuizzes: stats._count._all,
-        totalEarnedCoin: stats._sum.totalCoinsEarned ?? 0,
-        totalCorrectAnswers: stats._sum.correctAnswers ?? 0,
-        highScore: stats._max.accuracy ?? 0,
-        successRate: Number((stats._avg.accuracy ?? 0).toFixed(2)),
+        totalPlayedQuizzes: basicStats._count._all,
+        totalEarnedCoin: basicStats._sum.totalCoinsEarned ?? 0,
+        totalCorrectAnswers: basicStats._sum.correctAnswers ?? 0,
+        highScore: basicStats._max.accuracy ?? 0,
+        successRate: Number((basicStats._avg.accuracy ?? 0).toFixed(2)),
         rankThisMonth: monthlyRank,
+        categoryScores,
       };
     } catch (error) {
       console.error("[ProfileService] Failed to fetch user stats:", error);
@@ -56,32 +57,68 @@ export class ProfileService {
     }
   }
 
-  // Monthly rank calculation based on totalCoinsEarned
+  // Optimized method to calculate top 5 category average accuracy
+  private async getTopCategoryScores(userId: number): Promise<
+    {
+      categoryId: number;
+      categoryName: string;
+      accuracy: number;
+      quizCount: number;
+    }[]
+  > {
+    // Step 1: Fetch quiz results grouped by category with raw SQL or optimized Prisma query
+    const categoryStats = await this.prisma.$queryRaw<
+      {
+        categoryId: number;
+        categoryName: string;
+        averageAccuracy: number;
+        quizCount: number;
+      }[]
+    >`
+      SELECT 
+      c.id AS "categoryId",
+      c.name AS "categoryName",
+      AVG(qr.accuracy) AS "averageAccuracy",
+      COUNT(DISTINCT qr.id) AS "quizCount"
+      FROM "quiz_results" qr
+      JOIN "user_question_answers" uqa ON qr.id = uqa."quizResultId"
+      JOIN "quizzes" q ON uqa."quizId" = q.id
+      JOIN "categories" c ON q."categoryId" = c.id
+      WHERE qr."userId" = ${userId}
+      GROUP BY c.id, c.name
+      ORDER BY "averageAccuracy" DESC
+      LIMIT 5
+    `;
+
+    // Ensure type safety and handle empty results
+    return categoryStats.map((stat) => ({
+      categoryId: stat.categoryId,
+      categoryName: stat.categoryName,
+      accuracy: Number(stat.averageAccuracy.toFixed(2)), // Ensure float precision
+      quizCount: Number(stat.quizCount),
+    }));
+  }
+
+  // Calculate monthly rank based on total coins earned
   private async calculateMonthlyRank(
     startOfMonth: Date,
     userCoins: number
   ): Promise<number> {
     try {
-      const higherCoinsCount = await this.prisma.quizResult
-        .groupBy({
-          by: ["userId"],
-          where: {
-            completedAt: { gte: startOfMonth },
-          },
-          _sum: { totalCoinsEarned: true },
-          having: {
-            totalCoinsEarned: { _sum: { gt: userCoins } },
-          },
-        })
-        .then((results) => results.length);
+      const higherCoinsCount = await this.prisma.quizResult.groupBy({
+        by: ["userId"],
+        where: { completedAt: { gte: startOfMonth } },
+        _sum: { totalCoinsEarned: true },
+        having: { totalCoinsEarned: { _sum: { gt: userCoins } } },
+      });
 
-      return higherCoinsCount + 1;
+      return higherCoinsCount.length + 1;
     } catch (error) {
       console.error(
         "[ProfileService] Failed to calculate monthly rank:",
         error
       );
-      return 1; // Default rank if calculation fails
+      return 1; // Fallback rank
     }
   }
 
@@ -90,6 +127,7 @@ export class ProfileService {
     try {
       return await this.prisma.achievement.findMany({
         where: { userId },
+        orderBy: { earnedAt: "desc" },
       });
     } catch (error) {
       console.error("[ProfileService] Failed to fetch achievements:", error);
@@ -97,7 +135,7 @@ export class ProfileService {
     }
   }
 
-  // Optimized quiz history retrieval
+  // Fetch user quiz history
   async getUserPlayedQuizzes(userId: number): Promise<QuizHistoryResult[]> {
     try {
       const quizResults = await this.prisma.quizResult.findMany({
@@ -127,7 +165,7 @@ export class ProfileService {
       });
 
       return quizResults.map((result) => ({
-        category: result.questionResults[0]?.quiz.category || null,
+        category: result.questionResults[0]?.quiz.category ?? null,
         id: result.id,
         totalQuestions: result.totalQuestions,
         correctAnswers: result.correctAnswers,

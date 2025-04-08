@@ -7,6 +7,8 @@ export interface UserStats {
   highScore: number;
   successRate: number;
   rankThisMonth: number;
+  categoryScores: { categoryId: number; categoryName: string; accuracy: number }[]; // নতুন প্রপার্টি
+
 }
 
 export interface QuizHistoryResult {
