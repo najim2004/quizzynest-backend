@@ -47,29 +47,33 @@ enum SessionStatus {
 
 // 1. User
 model User {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   fullName    String
-  email       String   @unique
+  email       String    @unique
   password    String
-  role        Role     @default(USER)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  lastLoginAt DateTime @default(now())
+  role        Role      @default(USER)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime  @default(now())
+  isDeleted   Boolean   @default(false) // Soft delete flag
+  deletedAt   DateTime? // Timestamp for soft deletion
 
   // Relations
-  profile      UserProfile? // একজন ইউজারের একটি প্রোফাইল থাকতে পারে
-  quizResults  QuizResult[] // একজন ইউজারের অনেকগুলো কুইজ রেজাল্ট থাকতে পারে
-  achievements Achievement[] // একজন ইউজারের অনেকগুলো অ্যাচিভমেন্ট থাকতে পারে
-  vouchers     UserVoucher[] // একজন ইউজারের অনেকগুলো ভাউচার থাকতে পারে
-  categories   Category[] // একজন ইউজার অনেকগুলো ক্যাটাগরি তৈরি করতে পারে
-  quizzes      Quiz[] // একজন ইউজার অনেকগুলো কুইজ তৈরি করতে পারে
-  answers      UserQuestionAnswer[] // একজন ইউজার অনেকগুলো প্রশ্নের উত্তর দিতে পারে
-  quizSessions QuizSession[] // একজন ইউজারের অনেকগুলো কুইজ সেশন থাকতে পারে
+  profile               UserProfile?
+  quizResults           QuizResult[]
+  achievements          Achievement[]
+  vouchers              UserVoucher[]
+  categories            Category[]
+  quizzes               Quiz[]
+  answers               UserQuestionAnswer[]
+  quizSessions          QuizSession[]
+  QuizGenerationSession QuizGenerationSession[]
 
   @@index([email])
   @@index([role])
   @@index([lastLoginAt])
   @@index([createdAt])
+  @@index([isDeleted])
   @@map("users")
 }
 
@@ -88,15 +92,17 @@ model UserProfile {
 
 // 3. Category
 model Category {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  description String?  @db.Text
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?   @db.Text
   createdBy   Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  color       String?  @default("#FFFFFF") // ক্যাটাগরির জন্য একটি রঙ
-  icon        String?  @default("https://www.svgrepo.com/show/445599/category.svg") // ক্যাটাগরির জন্য একটি আইকন
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  color       String?   @default("#FFFFFF") // ক্যাটাগরির জন্য একটি রঙ
+  icon        String?   @default("https://www.svgrepo.com/show/445599/category.svg") // ক্যাটাগরির জন্য একটি আইকন
   iconId      String?
+  isDeleted   Boolean   @default(false) // Soft delete flag
+  deletedAt   DateTime? // Timestamp for soft deletion
 
   creator User   @relation(fields: [createdBy], references: [id]) // কোন ইউজার এই ক্যাটাগরি তৈরি করেছে
   quizzes Quiz[] // এই ক্যাটাগরিতে কতগুলো কুইজ আছে
@@ -104,51 +110,60 @@ model Category {
   @@index([createdBy])
   @@index([createdAt])
   @@index([name])
+  @@index([isDeleted])
   @@map("categories")
 }
 
 // 4. Quiz
 model Quiz {
-  id          Int                  @id @default(autoincrement())
+  id          Int        @id @default(autoincrement())
   question    String
-  timeLimit   Int                  @default(20) // সেকেন্ডে
-  maxPrize    Int                  @default(0) // New field for max price
-  description String?              @db.Text
+  timeLimit   Int        @default(20) // সেকেন্ডে
+  maxPrize    Int        @default(0) // New field for max price
+  description String?    @db.Text
   difficulty  Difficulty
   categoryId  Int
   createdBy   Int
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  category    Category             @relation(fields: [categoryId], references: [id]) // কোন ক্যাটাগরির কুইজ
-  creator     User                 @relation(fields: [createdBy], references: [id]) // কে এই কুইজ তৈরি করেছে
-  answers     Answer[] // এই কুইজের সম্ভাব্য উত্তরগুলো
-  userAnswers UserQuestionAnswer[] // ইউজারদের দেওয়া উত্তরগুলো
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  isDeleted   Boolean    @default(false) // Soft delete flag
+  deletedAt   DateTime? // Timestamp for soft deletion
+
+  category                Category               @relation(fields: [categoryId], references: [id]) // কোন ক্যাটাগরির কুইজ
+  creator                 User                   @relation(fields: [createdBy], references: [id]) // কে এই কুইজ তৈরি করেছে
+  answers                 Answer[] // এই কুইজের সম্ভাব্য উত্তরগুলো
+  userAnswers             UserQuestionAnswer[] // ইউজারদের দেওয়া উত্তরগুলো
+  QuizGenerationSession   QuizGenerationSession? @relation(fields: [quizGenerationSessionId], references: [id])
+  quizGenerationSessionId Int?
 
   @@index([categoryId])
   @@index([createdBy])
   @@index([difficulty])
   @@index([createdAt])
-  @@index([categoryId, difficulty]) // For filtering by both
-  @@index([categoryId, createdBy, createdAt])
+  @@index([isDeleted])
   @@map("quizzes")
 }
 
-// 6. Answer
+// 5. Answer
 model Answer {
-  id          Int                  @id @default(autoincrement())
-  text        String               @db.Text
-  isCorrect   Boolean
-  label       String? // Answer label (A, B, C, D)
-  quizId      Int
+  id        Int       @id @default(autoincrement())
+  text      String    @db.Text
+  isCorrect Boolean
+  label     String? // Answer label (A, B, C, D)
+  quizId    Int
+  isDeleted Boolean   @default(false) // Soft delete flag
+  deletedAt DateTime? // Timestamp for soft deletion
+
   quiz        Quiz                 @relation(fields: [quizId], references: [id], onDelete: Cascade) // কোন কুইজের উত্তর
   userAnswers UserQuestionAnswer[] // কোন ইউজাররা এই উত্তরটি বেছে নিয়েছে
 
   @@index([quizId])
   @@index([quizId, isCorrect])
+  @@index([isDeleted])
   @@map("answers")
 }
 
-// 7. UserQuestionAnswer
+// 6. UserQuestionAnswer
 model UserQuestionAnswer {
   id               Int                     @id @default(autoincrement())
   userId           Int
@@ -257,6 +272,8 @@ model UserVoucher {
   voucherId  Int
   status     VoucherStatus @default(ACTIVE)
   timestamps Json          @default("{\"purchasedAt\": null, \"usedAt\": null, \"expiresAt\": null}")
+  isDeleted  Boolean       @default(false) // Soft delete flag
+  deletedAt  DateTime? // Timestamp for soft deletion
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade) // কোন ইউজার এই ভাউচার ব্যবহার করেছে
   voucher Voucher @relation(fields: [voucherId], references: [id]) // কোন ভাউচার ব্যবহার করা হয়েছে
@@ -264,8 +281,7 @@ model UserVoucher {
   @@index([userId])
   @@index([voucherId])
   @@index([status])
-  @@index([userId, status])
-  @@index([userId, voucherId])
+  @@index([isDeleted])
   @@map("user_vouchers")
 }
 
@@ -294,4 +310,25 @@ model QuizSession {
   @@index([userId, status])
   @@index([userId, startedAt])
   @@map("quiz_sessions")
+}
+
+// New QuizGenerationSession model
+model QuizGenerationSession {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  totalFiles    Int      @default(0) // Total number of files
+  statusMessage String? // Optional status message
+  quizzes       Json     @default("[]") // Array of quizzes in JSON format
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  user User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quiz Quiz[] // Optional relation with Quiz model
+
+  // Indexes for better query performance
+  @@index([userId])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@map("quiz_generation_sessions")
 }
