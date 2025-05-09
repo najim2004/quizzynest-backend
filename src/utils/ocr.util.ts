@@ -65,14 +65,26 @@ export class OCRService {
   ): Promise<string[]> {
     try {
       const extension = path.extname(filePath).toLowerCase();
+      let result: string[];
 
       if (extension === ".pdf") {
-        return await this.extractTextFromPDF(filePath, tempImagePaths);
+        result = await this.extractTextFromPDF(filePath, tempImagePaths);
       } else {
         const text = await this.extractTextFromImage(filePath);
-        return [text];
+        result = [text];
       }
+
+      // Clean up temporary files after processing
+      if (tempImagePaths.length > 0) {
+        deleteTempFiles(tempImagePaths);
+      }
+
+      return result;
     } catch (error) {
+      // Clean up temporary files even if processing fails
+      if (tempImagePaths.length > 0) {
+        deleteTempFiles(tempImagePaths);
+      }
       console.error("Error processing file:", error);
       throw new Error(`File processing failed: ${(error as Error).message}`);
     }

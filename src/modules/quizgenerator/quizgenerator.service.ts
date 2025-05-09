@@ -7,11 +7,27 @@ import { deleteTempFiles } from "../../middleware/upload.middleware";
 export class QuizGenerationService {
   async initiateQuizGeneration(
     files: Express.Multer.File[],
-    userId: string
+    userId: number
   ): Promise<{ jobId: string; fileCount: number }> {
     if (!files || files.length === 0) {
       throw new Error("No files uploaded");
     }
+
+    // Check if user has any ongoing jobs
+    const userJobs = jobQueueService.getUserJobs(userId);
+    const hasOngoingJob = userJobs.some(
+      (job) =>
+        job.status === JobStatus.PROCESSING || job.status === JobStatus.PENDING
+    );
+
+    if (hasOngoingJob) {
+      throw new Error(
+        "You have an ongoing quiz generation process. Please wait for it to complete."
+      );
+    }
+
+    // Clean up completed or failed jobs for this user
+    jobQueueService.cleanupUserJobs(userId);
 
     const jobId = uuidv4();
     jobQueueService.createJob(jobId, userId);
@@ -34,29 +50,53 @@ export class QuizGenerationService {
   ): Promise<void> {
     jobQueueService.runJobAsync(jobId, async () => {
       try {
-        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 10);
+        // Initialize processing - 5%
+        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 5);
         let combinedText = "";
         let processedFiles = 0;
 
+        // File processing - 5% to 45% (40% total for file processing)
         for (const filePath of filePaths) {
-          const extractedTexts = await ocrService.processFile(filePath);
-          combinedText += extractedTexts.join("\n\n");
-          processedFiles++;
-          const fileProgress =
-            Math.floor((processedFiles / filePaths.length) * 40) + 10;
+          // Start processing new file
           jobQueueService.updateJobStatus(
             jobId,
             JobStatus.PROCESSING,
-            fileProgress
+            5 + Math.floor((processedFiles / filePaths.length) * 40)
+          );
+
+          const extractedTexts = await ocrService.processFile(filePath);
+          combinedText += extractedTexts.join("\n\n");
+          processedFiles++;
+
+          // Update progress after each file
+          jobQueueService.updateJobStatus(
+            jobId,
+            JobStatus.PROCESSING,
+            5 + Math.floor((processedFiles / filePaths.length) * 40)
           );
         }
 
+        // Text analysis start - 45%
+        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 45);
+
+        // AI model initialization - 50%
         jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 50);
+
+        // Generating questions - 55%
+        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 55);
         const questions: any[] = await geminiService.generateQuizFromText(
           combinedText
         );
 
-        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 80);
+        // Questions generated - 65%
+        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 65);
+        console.log(questions);
+
+        // Processing questions - 75%
+        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 75);
+
+        // Saving to database - 85%
+        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 85);
         // const generatedQuiz = await quizGenerationRepository.saveGeneratedQuiz({
         //   title: "Generated Quiz from Files",
         //   description: "Quiz generated from uploaded files",
@@ -66,7 +106,12 @@ export class QuizGenerationService {
         //   sourceFiles: quizMetadata.sourceFiles,
         // });
 
+        // Cleanup - 95%
+        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 95);
         deleteTempFiles(filePaths);
+
+        // Completing - 100%
+        jobQueueService.updateJobStatus(jobId, JobStatus.COMPLETED, 100);
 
         return {
           // quizId: generatedQuiz.id,
@@ -80,7 +125,7 @@ export class QuizGenerationService {
     });
   }
 
-  async checkJobStatus(jobId: string, userId: string): Promise<any> {
+  async checkJobStatus(jobId: string, userId: number): Promise<any> {
     const job = jobQueueService.getJob(jobId);
     if (!job) {
       throw new Error("Job not found");
@@ -99,7 +144,7 @@ export class QuizGenerationService {
     };
   }
 
-  async getUserJobs(userId: string): Promise<any[]> {
+  async getUserJobs(userId: number): Promise<any[]> {
     return jobQueueService.getUserJobs(userId);
   }
 }

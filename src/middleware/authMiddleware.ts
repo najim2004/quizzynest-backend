@@ -1,11 +1,15 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { JwtPayloadInput } from "../auth/auth.types";
+import { JwtPayloadInput } from "../modules/auth/auth.types";
 import { ApiResponse } from "../utils/apiResponse";
+import "dotenv";
 
 const TOKENS = {
-  ACCESS: { secret: process.env.JWT_ACCESS_SECRET as string, expiry: "30m" },
-  REFRESH: { secret: process.env.JWT_REFRESH_SECRET as string, expiry: "7d" },
+  ACCESS: { secret: process.env.JWT_ACCESS_SECRET as string, expiry: "900" },
+  REFRESH: {
+    secret: process.env.JWT_REFRESH_SECRET as string,
+    expiry: "2592000",
+  },
 } as const;
 
 const generateToken = (payload: JwtPayloadInput, type: keyof typeof TOKENS) =>

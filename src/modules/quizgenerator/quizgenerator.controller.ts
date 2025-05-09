@@ -1,11 +1,15 @@
 import { Request, Response } from "express";
 import { quizGenerationService } from "./quizgenerator.service";
+import { ApiResponse } from "../../utils/apiResponse";
 
 export class QuizGenerationController {
   async initiateQuizGeneration(req: Request, res: Response): Promise<Response> {
     try {
+      if (!req.user) {
+        return ApiResponse.unauthorized(res, "Unauthorized access");
+      }
       const files = req.files as Express.Multer.File[];
-      const userId = (req.user as any).id;
+      const userId = parseInt(req.user.sub);
 
       const result = await quizGenerationService.initiateQuizGeneration(
         files,
@@ -34,8 +38,11 @@ export class QuizGenerationController {
 
   async checkJobStatus(req: Request, res: Response): Promise<Response> {
     try {
+      if (!req.user) {
+        return ApiResponse.unauthorized(res, "Unauthorized access");
+      }
       const { jobId } = req.params;
-      const userId = (req.user as any).id;
+      const userId = parseInt(req.user.sub);
 
       const jobStatus = await quizGenerationService.checkJobStatus(
         jobId,
@@ -52,7 +59,10 @@ export class QuizGenerationController {
 
   async getUserJobs(req: Request, res: Response): Promise<Response> {
     try {
-      const userId = (req.user as any).id;
+      if (!req.user) {
+        return ApiResponse.unauthorized(res, "Unauthorized access");
+      }
+      const userId = parseInt(req.user.sub);
       const jobs = await quizGenerationService.getUserJobs(userId);
       return res.status(200).json({ success: true, data: jobs });
     } catch (error) {

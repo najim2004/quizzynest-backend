@@ -4,7 +4,7 @@ import path from "path";
 // Multer স্টোরেজ কনফিগারেশন
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "tmp/uploads/"); // সাময়িকভাবে ফাইল সেভ করার লোকেশন
+    cb(null, "uploads/"); // সাময়িকভাবে ফাইল সেভ করার লোকেশন
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);

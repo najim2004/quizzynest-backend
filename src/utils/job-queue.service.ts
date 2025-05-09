@@ -17,7 +17,7 @@ export interface Job {
   error?: string;
   createdAt: Date;
   updatedAt: Date;
-  userId: string;
+  userId: number;
 }
 
 /**
@@ -37,7 +37,7 @@ export class JobQueueService {
   /**
    * Create a new job
    */
-  public createJob(jobId: string, userId: string): Job {
+  public createJob(jobId: string, userId: number): Job {
     const job: Job = {
       id: jobId,
       status: JobStatus.PENDING,
@@ -163,7 +163,7 @@ export class JobQueueService {
   /**
    * Get all jobs for a specific user
    */
-  public getUserJobs(userId: string): Job[] {
+  public getUserJobs(userId: number): Job[] {
     const userJobs: Job[] = [];
 
     for (const job of this.jobs.values()) {
@@ -173,6 +173,41 @@ export class JobQueueService {
     }
 
     return userJobs;
+  }
+
+  /**
+   * Clean up completed/failed jobs for a specific user
+   */
+  public cleanupUserJobs(userId: number): void {
+    for (const [jobId, job] of this.jobs.entries()) {
+      if (job.userId === userId && 
+         (job.status === JobStatus.COMPLETED || job.status === JobStatus.FAILED)) {
+        this.jobs.delete(jobId);
+      }
+    }
+  }
+
+  /**
+   * Set job result
+   */
+  public setJobResult(jobId: string, result: any): void {
+    const job = this.jobs.get(jobId);
+    if (job) {
+      job.result = result;
+      job.updatedAt = new Date();
+    }
+  }
+
+  /**
+   * Set job error
+   */
+  public setJobError(jobId: string, error: string): void {
+    const job = this.jobs.get(jobId);
+    if (job) {
+      job.status = JobStatus.FAILED;
+      job.error = error;
+      job.updatedAt = new Date();
+    }
   }
 }
 

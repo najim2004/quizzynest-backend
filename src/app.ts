@@ -8,12 +8,14 @@ import { rateLimit } from "express-rate-limit";
 import { connectDB } from "./config/database";
 import { errorHandler } from "./middleware/errorHandler";
 import { notFoundHandler } from "./middleware/notFoundHandler";
-import { authRouter } from "./auth/auth.route";
+import { authRouter } from "./modules/auth/auth.route";
 import { profileRouter } from "./modules/profile/profile.route";
 import { quizRouter } from "./modules/quiz/quiz.route";
-import { categoryRouter } from "./category/category.route";
+import { categoryRouter } from "./modules/category/category.route";
 import path from "path";
 import { quizGenerationRouter } from "./modules/quizgenerator/quiz-generation.route";
+import { cleanupTempDirectory } from "./utils/cleanup.util";
+
 class App {
   private app: Application;
 
@@ -22,6 +24,7 @@ class App {
     this.initializeMiddlewares();
     this.initializeRoutes();
     this.initializeErrorHandling();
+    this.initializeShutdownHandlers();
   }
 
   private initializeMiddlewares(): void {
@@ -74,9 +77,25 @@ class App {
     this.app.use(errorHandler);
   }
 
+  private initializeShutdownHandlers(): void {
+    // Handle graceful shutdown
+    const cleanupAndExit = () => {
+      console.log('[Server] Cleaning up before shutdown...');
+      cleanupTempDirectory();
+      process.exit(0);
+    };
+
+    // Handle different termination signals
+    process.on('SIGTERM', cleanupAndExit);
+    process.on('SIGINT', cleanupAndExit);
+  }
+
   public async start(port: number): Promise<void> {
     try {
       await connectDB();
+      // Clean up temp directory on server start
+      cleanupTempDirectory();
+      
       this.app.listen(port, () => {
         console.log(`[Server] Running on : http://localhost:${port}`);
         console.log(`[Environment] ${process.env.NODE_ENV}`);

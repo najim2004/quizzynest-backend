@@ -348,7 +348,7 @@ export class QuizService {
         }),
       ]);
 
-      const nextQuiz = await this.prepareNextQuiz(tx, quizIds, currentIndex);
+      const nextQuiz = await this.prepareNextQuiz(tx, quizId, currentIndex);
       const response: SubmitQuizAnswerResponse = {
         answerResponse: {
           correct: finalAnswer.isCorrect,
