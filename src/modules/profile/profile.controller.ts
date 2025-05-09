@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { ApiResponse } from "../utils/apiResponse";
+import { ApiResponse } from "../../utils/apiResponse";
 import { ProfileService } from "./profile.service";
 
 export class ProfileController {

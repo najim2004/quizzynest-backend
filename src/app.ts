@@ -9,10 +9,11 @@ import { connectDB } from "./config/database";
 import { errorHandler } from "./middleware/errorHandler";
 import { notFoundHandler } from "./middleware/notFoundHandler";
 import { authRouter } from "./auth/auth.route";
-import { profileRouter } from "./profile/profile.route";
-import { quizRouter } from "./quiz/quiz.route";
+import { profileRouter } from "./modules/profile/profile.route";
+import { quizRouter } from "./modules/quiz/quiz.route";
 import { categoryRouter } from "./category/category.route";
 import path from "path";
+import { quizGenerationRouter } from "./modules/quizgenerator/quiz-generation.route";
 class App {
   private app: Application;
 
@@ -64,6 +65,7 @@ class App {
     this.app.use("/api/auth", authRouter);
     this.app.use("/api/users", profileRouter);
     this.app.use("/api/quizzes", quizRouter);
+    this.app.use("/api/quiz-generation", quizGenerationRouter);
     this.app.use("/api/categories", categoryRouter);
   }
 

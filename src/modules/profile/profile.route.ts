@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ProfileController } from "./profile.controller";
-import { authMiddleware } from "../middleware/authMiddleware";
-import { routeHandler } from "../middleware/routeHandler";
+import { authMiddleware } from "../../middleware/authMiddleware";
+import { routeHandler } from "../../middleware/routeHandler";
 
 class ProfileRoute {
   public router: Router;

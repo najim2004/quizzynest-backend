@@ -1,4 +1,4 @@
-import { PrismaClient, Quiz, Prisma } from "@prisma/client";
+import { PrismaClient, Quiz, Prisma, SessionStatus } from "@prisma/client";
 import * as crypto from "crypto";
 import {
   CreateQuizDto,
@@ -56,38 +56,43 @@ export class QuizService {
 
   private async prepareNextQuiz(
     tx: Prisma.TransactionClient,
-    quizIds: number[],
+    sessionId: number,
     currentIndex: number
   ): Promise<ClientQuiz | null> {
-    const nextQuizId =
-      currentIndex + 1 < quizIds.length ? quizIds[currentIndex + 1] : null;
-    if (!nextQuizId) return null;
-
-    const quiz = await tx.quiz.findUnique({
-      where: { id: nextQuizId },
-      select: {
-        id: true,
-        question: true,
-        description: true,
-        timeLimit: true,
-        maxPrize: true,
-        difficulty: true,
-        categoryId: true,
-        answers: { select: { id: true, label: true, text: true } },
+    // Get the next quiz from the session quizzes
+    const nextQuiz = await tx.sessionQuiz.findFirst({
+      where: {
+        sessionId,
+        order: currentIndex + 1,
       },
+      include: {
+        quiz: {
+          select: {
+            id: true,
+            question: true,
+            description: true,
+            timeLimit: true,
+            maxPrize: true,
+            difficulty: true,
+            categoryId: true,
+            answers: { select: { id: true, label: true, text: true } },
+          },
+        },
+      },
+      orderBy: { order: "asc" },
     });
 
-    return quiz
-      ? {
-          ...quiz,
-          answers: quiz.answers.map((a) => ({
-            ...a,
-            label: a.label as "A" | "B" | "C" | "D",
-          })),
-          currentQuizIndex: currentIndex + 1,
-          startTime: this.encryptStartTime(new Date()),
-        }
-      : null;
+    if (!nextQuiz) return null;
+
+    return {
+      ...nextQuiz.quiz,
+      answers: nextQuiz.quiz.answers.map((a) => ({
+        ...a,
+        label: a.label as "A" | "B" | "C" | "D",
+      })),
+      currentQuizIndex: currentIndex + 1,
+      startTime: this.encryptStartTime(new Date()),
+    };
   }
 
   async createQuiz(userId: number, dto: CreateQuizDto): Promise<Quiz> {
@@ -123,7 +128,7 @@ export class QuizService {
     filters: QuizFilterDto
   ): Promise<QuizSessionResponse> {
     const { limit = 10, difficulty, categoryId } = filters;
-    console.log("[This line for testing]:",difficulty);
+    console.log("[This line for testing]:", difficulty);
     const where = {
       ...(difficulty && { difficulty }),
       ...(categoryId && { categoryId }),
@@ -151,33 +156,46 @@ export class QuizService {
     if (!quizIds.length) throw new Error("No quizzes available");
 
     const startTime = new Date();
-    const [session, firstQuiz] = await Promise.all([
-      this.prisma.quizSession.create({
+
+    // Create the session with the new schema
+    return this.prisma.$transaction(async (tx) => {
+      // Create the quiz session
+      const session = await tx.quizSession.create({
         data: {
           userId,
-          status: "IN_PROGRESS",
+          status: SessionStatus.IN_PROGRESS,
           startedAt: startTime,
-          selectedQuizIds: JSON.stringify(quizIds),
           totalQuestions: quizIds.length,
         },
-      }),
-      this.fetchQuiz(this.prisma, quizIds[0]),
-    ]);
+      });
 
-    return {
-      sessionId: session.id,
-      currentQuiz: {
-        ...firstQuiz,
-        answers: firstQuiz.answers.map((a) => ({
-          id: a.id,
-          label: a.label as "A" | "B" | "C" | "D",
-          text: a.text,
+      // Create the session quizzes with order
+      await tx.sessionQuiz.createMany({
+        data: quizIds.map((quizId, index) => ({
+          sessionId: session.id,
+          quizId,
+          order: index,
         })),
-        currentQuizIndex: 0,
-        startTime: this.encryptStartTime(startTime),
-      },
-      totalQuizzes: quizIds.length,
-    };
+      });
+
+      // Fetch the first quiz
+      const firstQuiz = await this.fetchQuiz(tx, quizIds[0]);
+
+      return {
+        sessionId: session.id,
+        currentQuiz: {
+          ...firstQuiz,
+          answers: firstQuiz.answers.map((a) => ({
+            id: a.id,
+            label: a.label as "A" | "B" | "C" | "D",
+            text: a.text,
+          })),
+          currentQuizIndex: 0,
+          startTime: this.encryptStartTime(startTime),
+        },
+        totalQuizzes: quizIds.length,
+      };
+    });
   }
 
   async getQuizzesForAdmin(filters: AdminQuizFilterDto): Promise<{
@@ -284,21 +302,24 @@ export class QuizService {
         (Date.now() - this.decryptStartTime(encryptedStartTime).getTime()) /
           1000
       );
-      const [session, quiz] = await Promise.all([
+
+      // Get the session and quiz
+      const [session, quiz, sessionQuiz] = await Promise.all([
         tx.quizSession.findFirstOrThrow({
-          where: { id: sessionId, userId, status: "IN_PROGRESS" },
+          where: { id: sessionId, userId, status: SessionStatus.IN_PROGRESS },
           select: {
-            selectedQuizIds: true,
             totalQuestions: true,
             answeredCount: true,
           },
         }),
         this.fetchQuiz(tx, quizId),
+        tx.sessionQuiz.findFirstOrThrow({
+          where: { sessionId, quizId },
+          select: { order: true },
+        }),
       ]);
 
-      const quizIds = JSON.parse(session.selectedQuizIds as string) as number[];
-      const currentIndex = quizIds.indexOf(quizId);
-      if (currentIndex === -1) throw new Error("Quiz not found in session");
+      const currentIndex = sessionQuiz.order;
 
       const effectiveAnswerId =
         quiz.timeLimit && timeTaken > quiz.timeLimit ? null : answerId;
@@ -371,7 +392,7 @@ export class QuizService {
         })) as unknown as QuizResultType;
         await tx.quizSession.update({
           where: { id: sessionId },
-          data: { status: "COMPLETED", completedAt: new Date() },
+          data: { status: SessionStatus.COMPLETED, completedAt: new Date() },
         });
       }
 

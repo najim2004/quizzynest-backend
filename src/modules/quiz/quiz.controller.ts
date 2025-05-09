@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { ApiResponse } from "../utils/apiResponse";
+import { ApiResponse } from "../../utils/apiResponse";
 import { QuizService } from "./quiz.service";
 import { validateCreateQuiz, validateUpdateQuiz } from "./quiz.validator";
 import { Difficulty } from "@prisma/client";

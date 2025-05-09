@@ -1,5 +1,5 @@
 import { PrismaClient, Achievement } from "@prisma/client";
-import { prisma } from "../config/database";
+import { prisma } from "../../config/database";
 import { QuizHistoryResult, UserStats } from "./profile.type";
 
 export class ProfileService {

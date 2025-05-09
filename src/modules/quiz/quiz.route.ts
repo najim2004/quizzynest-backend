@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { QuizController } from "./quiz.controller";
-import { authMiddleware } from "../middleware/authMiddleware";
-import { routeHandler } from "../middleware/routeHandler";
+import { authMiddleware } from "../../middleware/authMiddleware";
+import { routeHandler } from "../../middleware/routeHandler";
 
 class QuizRoute {
   public router: Router;
