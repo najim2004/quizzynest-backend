@@ -16,23 +16,25 @@ export class QuizGenerationController {
         userId
       );
 
-      return res.status(202).json({
-        success: true,
-        message: "Files uploaded successfully. Quiz generation started.",
-        data: {
+      return ApiResponse.success(
+        res,
+        {
           jobId: result.jobId,
           status: "pending",
           fileCount: result.fileCount,
         },
-      });
+        "Quiz generation initiated successfully",
+        202
+      );
     } catch (error) {
       console.error("Error initiating quiz generation:", error);
-      return res.status(500).json({
-        success: false,
-        message: `Failed to initiate quiz generation: ${
-          (error as Error).message
-        }`,
-      });
+
+      return ApiResponse.error(
+        res,
+        `Failed to initiate quiz generation`,
+        500,
+        (error as Error).message
+      );
     }
   }
 
@@ -48,12 +50,19 @@ export class QuizGenerationController {
         jobId,
         userId
       );
-      return res.status(200).json({ success: true, data: jobStatus });
+      return ApiResponse.success(
+        res,
+        jobStatus,
+        "Job status fetched successfully",
+        200
+      );
     } catch (error) {
-      return res.status(400).json({
-        success: false,
-        message: (error as Error).message,
-      });
+      return ApiResponse.error(
+        res,
+        `Failed to fetch job status`,
+        500,
+        (error as Error).message
+      );
     }
   }
 
@@ -64,12 +73,19 @@ export class QuizGenerationController {
       }
       const userId = parseInt(req.user.sub);
       const jobs = await quizGenerationService.getUserJobs(userId);
-      return res.status(200).json({ success: true, data: jobs });
+      return ApiResponse.success(
+        res,
+        jobs,
+        "User jobs fetched successfully",
+        200
+      );
     } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: `Failed to fetch jobs: ${(error as Error).message}`,
-      });
+      return ApiResponse.error(
+        res,
+        `Failed to fetch user jobs`,
+        500,
+        (error as Error).message
+      );
     }
   }
 }

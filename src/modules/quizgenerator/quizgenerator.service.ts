@@ -3,6 +3,8 @@ import { ocrService } from "../../utils/ocr.util";
 import { geminiService } from "../../utils/gemini.util";
 import { jobQueueService, JobStatus } from "../../utils/job-queue.service";
 import { deleteTempFiles } from "../../middleware/upload.middleware";
+import { Category } from "@prisma/client";
+import { quizGenerationRepository } from "./quiz-generation.repository";
 
 export class QuizGenerationService {
   async initiateQuizGeneration(
@@ -51,60 +53,54 @@ export class QuizGenerationService {
     jobQueueService.runJobAsync(jobId, async () => {
       try {
         // Initialize processing - 5%
+        const categories: Pick<Category, "id" | "name">[] =
+          await quizGenerationRepository.getCategories();
         jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 5);
-        let combinedText = "";
         let processedFiles = 0;
+        const allQuestions: any[] = []; // Array to store all generated questions
 
         // File processing - 5% to 45% (40% total for file processing)
         for (const filePath of filePaths) {
-          // Start processing new file
           jobQueueService.updateJobStatus(
             jobId,
             JobStatus.PROCESSING,
             5 + Math.floor((processedFiles / filePaths.length) * 40)
           );
 
-          const extractedTexts = await ocrService.processFile(filePath);
-          combinedText += extractedTexts.join("\n\n");
+          const textChunks = await ocrService.processFile(filePath);
           processedFiles++;
 
-          // Update progress after each file
-          jobQueueService.updateJobStatus(
-            jobId,
-            JobStatus.PROCESSING,
-            5 + Math.floor((processedFiles / filePaths.length) * 40)
-          );
+          // Process each chunk separately - Calculate progress per chunk
+          const chunksCount = textChunks.length;
+          for (let i = 0; i < chunksCount; i++) {
+            const chunk = textChunks[i];
+            const chunkProgress = Math.floor((i / chunksCount) * 40);
+
+            jobQueueService.updateJobStatus(
+              jobId,
+              JobStatus.PROCESSING,
+              45 + chunkProgress
+            );
+
+            // Generate questions for this chunk
+            const chunkQuestions: any[] =
+              await geminiService.generateQuizFromText(chunk, categories);
+
+            // Add questions from this chunk to our collection
+            allQuestions.push(...chunkQuestions);
+          }
         }
 
-        // Text analysis start - 45%
-        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 45);
-
-        // AI model initialization - 50%
-        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 50);
-
-        // Generating questions - 55%
-        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 55);
-        const questions: any[] = await geminiService.generateQuizFromText(
-          combinedText
-        );
-
-        // Questions generated - 65%
-        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 65);
-        console.log(questions);
-
-        // Processing questions - 75%
-        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 75);
-
-        // Saving to database - 85%
+        // Questions generated - 85%
         jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 85);
-        // const generatedQuiz = await quizGenerationRepository.saveGeneratedQuiz({
-        //   title: "Generated Quiz from Files",
-        //   description: "Quiz generated from uploaded files",
-        //   userId: quizMetadata.userId,
-        //   categoryId: "general_knowledge",
-        //   questions,
-        //   sourceFiles: quizMetadata.sourceFiles,
-        // });
+        console.log(`Total questions generated: ${allQuestions.length}`);
+
+        // Saving to database - 90%
+        jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 90);
+        await quizGenerationRepository.createQuizzesWithAnswers(
+          allQuestions,
+          quizMetadata.userId
+        );
 
         // Cleanup - 95%
         jobQueueService.updateJobStatus(jobId, JobStatus.PROCESSING, 95);
@@ -112,12 +108,6 @@ export class QuizGenerationService {
 
         // Completing - 100%
         jobQueueService.updateJobStatus(jobId, JobStatus.COMPLETED, 100);
-
-        return {
-          // quizId: generatedQuiz.id,
-          // title: generatedQuiz.title,
-          // questionCount: generatedQuiz.questions.length,
-        };
       } catch (error) {
         deleteTempFiles(filePaths);
         throw error;
