@@ -17,15 +17,14 @@ export class QuizGenerationService {
 
     // Check if user has any ongoing jobs
     const userJobs = jobQueueService.getUserJobs(userId);
-    const hasOngoingJob = userJobs.some(
-      (job) =>
-        job.status === JobStatus.PROCESSING || job.status === JobStatus.PENDING
-    );
+    const processingJobId =
+      userJobs.find((job) => job.status === JobStatus.PROCESSING)?.id || null;
 
-    if (hasOngoingJob) {
-      throw new Error(
-        "You have an ongoing quiz generation process. Please wait for it to complete."
-      );
+    if (processingJobId) {
+      return {
+        jobId: processingJobId,
+        fileCount: NaN,
+      };
     }
 
     // Clean up completed or failed jobs for this user
@@ -124,13 +123,9 @@ export class QuizGenerationService {
       throw new Error("You do not have permission to view this job");
     }
     return {
-      jobId: job.id,
       status: job.status,
       progress: job.progress,
-      result: job.result,
       error: job.error,
-      createdAt: job.createdAt,
-      updatedAt: job.updatedAt,
     };
   }
 

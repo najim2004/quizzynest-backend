@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { ApiResponse } from "../../utils/apiResponse";
 import { QuizService } from "./quiz.service";
 import { validateCreateQuiz, validateUpdateQuiz } from "./quiz.validator";
-import { Difficulty } from "@prisma/client";
+import { Difficulty, QuizStatus } from "@prisma/client";
 
 export class QuizController {
   private quizService: QuizService;
@@ -128,6 +128,7 @@ export class QuizController {
         createdBy: req.query.createdBy
           ? parseInt(req.query.createdBy as string)
           : undefined,
+        status: req.query.status ? (req.query.status as QuizStatus) : undefined,
       };
 
       const result = await this.quizService.getQuizzesForAdmin(filters);

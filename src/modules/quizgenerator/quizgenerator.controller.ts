@@ -21,7 +21,6 @@ export class QuizGenerationController {
         {
           jobId: result.jobId,
           status: "pending",
-          fileCount: result.fileCount,
         },
         "Quiz generation initiated successfully",
         202

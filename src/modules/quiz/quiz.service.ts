@@ -209,11 +209,13 @@ export class QuizService {
       categoryId,
       search,
       createdBy,
+      status,
     } = filters;
     const where: Prisma.QuizWhereInput = {
       ...(difficulty && { difficulty }),
       ...(categoryId && { categoryId }),
       ...(createdBy && { createdBy }),
+      ...(status && { status }),
       ...(search && {
         OR: [
           { question: { contains: search, mode: "insensitive" } },

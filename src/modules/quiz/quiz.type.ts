@@ -1,4 +1,4 @@
-import { Difficulty, Quiz } from "@prisma/client";
+import { Difficulty, Quiz, QuizStatus } from "@prisma/client";
 
 export interface CreateQuizDto {
   question: string;
@@ -22,6 +22,7 @@ export interface AdminQuizFilterDto extends QuizFilterDto {
   page?: number;
   search?: string;
   createdBy?: number;
+  status?: QuizStatus;
 }
 
 export interface ClientQuiz
