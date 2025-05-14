@@ -1,4 +1,10 @@
-import { PrismaClient, Quiz, Prisma, SessionStatus } from "@prisma/client";
+import {
+  PrismaClient,
+  Quiz,
+  Prisma,
+  SessionStatus,
+  QuizStatus,
+} from "@prisma/client";
 import * as crypto from "crypto";
 import {
   CreateQuizDto,
@@ -128,7 +134,6 @@ export class QuizService {
     filters: QuizFilterDto
   ): Promise<QuizSessionResponse> {
     const { limit = 10, difficulty, categoryId } = filters;
-    console.log("[This line for testing]:", difficulty);
     const where = {
       ...(difficulty && { difficulty }),
       ...(categoryId && { categoryId }),
@@ -143,11 +148,13 @@ export class QuizService {
           ? Prisma.sql`"difficulty"::text = ${difficulty}::text`
           : Prisma.sql`TRUE`
       }
+      AND "status" = 'PUBLISHED'
       AND ${
         where.categoryId
           ? Prisma.sql`"categoryId" = ${categoryId}`
           : Prisma.sql`TRUE`
       }
+      AND "isDeleted" = false
       ORDER BY RANDOM()
       LIMIT ${limit}
     `;
@@ -209,13 +216,14 @@ export class QuizService {
       categoryId,
       search,
       createdBy,
-      status,
+      status = "PUBLISHED",
     } = filters;
     const where: Prisma.QuizWhereInput = {
       ...(difficulty && { difficulty }),
       ...(categoryId && { categoryId }),
       ...(createdBy && { createdBy }),
-      ...(status && { status }),
+      status: status,
+      isDeleted: false,
       ...(search && {
         OR: [
           { question: { contains: search, mode: "insensitive" } },
@@ -275,10 +283,27 @@ export class QuizService {
   }
 
   async deleteQuiz(id: number, userId: number): Promise<boolean> {
-    return (
-      (await this.prisma.quiz.deleteMany({ where: { id, createdBy: userId } }))
-        .count > 0
-    );
+    return this.prisma.$transaction(async (tx) => {
+      const quiz = await tx.quiz.findFirst({
+        where: { id, createdBy: userId },
+        select: { status: true },
+      });
+
+      if (!quiz) return false;
+
+      if (quiz.status === "DRAFT") {
+        const deleted = await tx.quiz.deleteMany({
+          where: { id, createdBy: userId },
+        });
+        return deleted.count > 0;
+      } else {
+        const updated = await tx.quiz.updateMany({
+          where: { id, createdBy: userId },
+          data: { isDeleted: true },
+        });
+        return updated.count > 0;
+      }
+    });
   }
 
   async submitQuizAnswer(

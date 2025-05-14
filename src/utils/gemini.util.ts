@@ -65,11 +65,10 @@ Each object must follow this structure:
 `;
 
       const response = await this.genAI.models.generateContent({
-        model: "gemini-2.5-pro-exp-03-25",
+        model: "gemini-2.5-flash-preview-04-17",
         contents: prompt,
       });
       const textResponse = response?.text;
-
       const jsonMatch = textResponse?.match(/\[\s*\{[\s\S]*\}\s*\]/);
       if (!jsonMatch) {
         throw new Error("Invalid response format from Gemini AI");
@@ -79,7 +78,6 @@ Each object must follow this structure:
       if (!Array.isArray(quizQuestions) || quizQuestions.length === 0) {
         throw new Error("No quiz questions generated");
       }
-
       return quizQuestions;
     } catch (error) {
       console.error("Error generating quiz from text:", error);

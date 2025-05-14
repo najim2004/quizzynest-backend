@@ -114,7 +114,6 @@ export class QuizController {
       if (!req.user?.role || req.user.role !== "ADMIN") {
         return ApiResponse.forbidden(res, "Admin access required");
       }
-
       const filters = {
         page: req.query.page ? parseInt(req.query.page as string) : undefined,
         limit: req.query.limit
